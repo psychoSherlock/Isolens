@@ -1,0 +1,8 @@
+core/storage/logs/
+core/storage/samples/
+core/storage/database/
+*.vdi
+*.iso
+.env
+**pycache**/
+.venv/

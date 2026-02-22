@@ -29,6 +29,11 @@ Detailed information can be found in the `docs/` folder:
 - [**Project Idea & Concept**](docs/IDEA.md): The core vision, problem statement, and proposed workflow for the automated sandbox.
 - [**Sandbox VM Setup**](docs/SANDBOX_VM_SETUP.md): A comprehensive guide on setting up the isolated Windows 7 analysis environment.
 
+## 🛠 Scripts
+
+The `scripts/` directory contains utility scripts for project maintenance:
+- `sync_ai_docs.py`: Synchronizes the content of `AGENTS.md` (the source of truth) to all other AI instruction files (`GEMINI.md`, `AI-INSTRUCTIONS.md`, and `.github/copilot-instructions.md`). Run this after any update to `AGENTS.md`.
+
 ## 👥 Contributors
 
 - [ATHUL PRAKASH NJ](https://github.com/psychoSherlock/)

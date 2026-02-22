@@ -12,7 +12,7 @@ Handles all user-facing logic, including file uploads and report visualization.
 The system entry layer that routes API requests to the controller.
 
 ### `core/controller/`
-The orchestration brain that coordinates the VM lifecycle and analysis workflow.
+The orchestration brain that coordinates the VM lifecycle and analysis workflow, including VirtualBox control via VBoxManage.
 
 ### `core/agent/`
 Guest-side API service running inside the isolated container/VM. It gathers logs and tool outputs from within the sandbox.

@@ -164,11 +164,17 @@ When adding:
 - Structural modifications
 
 The AI MUST:
-- Update this `AI-INSTRUCTIONS.md`
+- Update this `AI-INSTRUCTIONS.md` (Note: `AGENTS.md` is the source of truth, run `python3 scripts/sync_ai_docs.py` after updating)
 - Update `docs/ARCHITECTURE.md` if needed
 - Reflect changes in component responsibility sections
 
 Never allow architecture drift.
+
+---
+
+## 1️⃣b Versioning Rule
+
+The `/version` endpoint must be updated whenever any part of the project changes (code, docs, tests, configs, dependencies). Treat this as mandatory for every change.
 
 ---
 
@@ -199,23 +205,26 @@ TEST_03_risk_scoring.py
 Each test script must:
 - Run independently
 - Print PASS or FAIL
-- Provide minimal diagnostic output
+- Print what the test is about
+- Print the raw output produced by the test
 
 Example:
 
 ```
-
 [TEST_01_controller_flow] PASS
-
+About: Controller dry-run builds correct VBoxManage command
+Output:
+{"cmd": ["VBoxManage", "startvm", "TestVM", "--type", "headless"], "returncode": 0, "stdout": "", "stderr": ""}
 ```
 
 or
 
 ```
-
 [TEST_02_log_parsing] FAIL
+About: Network events parsed from sample log
 Reason: No network events parsed
-
+Output:
+<raw parser output here>
 ```
 
 ---
@@ -305,6 +314,13 @@ Keep it readable and structured.
 
 ---
 
+# 🔌 API Gateway Rules
+
+- All API endpoints must be under `/api/`.
+- VM identifiers must be passed in the request body for POST endpoints, not in the URL path.
+- Request and response schemas must remain consistent and documented via models.
+- Gateway routes must be organized into multiple modules (e.g., `system_routes.py`, `controller_routes.py`) and included in `app.py` via routers. Do not define all endpoints directly in `app.py`.
+
 # 📌 Final AI Checklist Before Completing Work
 
 Before finalizing any change:
@@ -319,4 +335,3 @@ Before finalizing any change:
 
 No exceptions.
 ```
-
