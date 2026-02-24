@@ -40,3 +40,9 @@ The `scripts/` directory contains utility scripts for project maintenance:
 - [AARON PAUL BIJU](https://github.com/aaronpaulbiju/)
 - [ADITHI ASOK](https://github.com/kaalibindhi/)
 - [IRFAN VS](https://github.com/Irfanvs/)
+
+## Frontend Interface
+
+Below is the Material Themed Dashboard UI:
+
+![Frontend Interface](UI-design.png)
