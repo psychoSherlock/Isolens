@@ -18,6 +18,7 @@ from core.gateway.api_models import (
 from core.modules.vbox_output_parser import (
     parse_list_vms,
     parse_showvminfo,
+    parse_guest_net_properties,
 )
 
 router = APIRouter(prefix="/api/vms", tags=["vms"])
@@ -74,6 +75,29 @@ def list_running_vms(
         client = _client(dry_run=dry_run, raise_on_error=raise_on_error)
         result = client.list_running_vms()
         data: dict = {"vms": parse_list_vms(result.stdout)}
+        if dry_run:
+            data["debug"] = result.to_dict()
+        return _ok(data)
+    except RuntimeError as exc:
+        return JSONResponse(
+            status_code=500,
+            content=_error("VBoxManage failed", str(exc)).model_dump(),
+        )
+
+
+@router.get("/ip", response_model=StandardResponse)
+def vm_ip_addresses(
+    vm: str, dry_run: bool = False, raise_on_error: bool = True
+) -> StandardResponse:
+    """Return all network interface IPs for a given VM via Guest Additions.
+
+    Requires VirtualBox Guest Additions to be installed and running inside the VM.
+    """
+    try:
+        client = _client(dry_run=dry_run, raise_on_error=raise_on_error)
+        result = client.get_vm_ip_addresses(vm)
+        interfaces = parse_guest_net_properties(result.stdout)
+        data: dict = {"vm": vm, "interfaces": interfaces}
         if dry_run:
             data["debug"] = result.to_dict()
         return _ok(data)

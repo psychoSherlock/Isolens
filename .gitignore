@@ -6,3 +6,6 @@ core/storage/database/
 .env
 **pycache**/
 .venv/
+core/interface/node_modules/
+core/interface/.next/
+core/interface/out/

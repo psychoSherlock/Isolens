@@ -173,3 +173,45 @@ def parse_snapshot_list(stdout: str) -> dict[str, Any]:
         "snapshots": [entries[s] for s in sorted(entries)],
         "current": current_name,
     }
+
+
+# ---------------------------------------------------------------------------
+# guestproperty enumerate  →  network interface IPs
+# ---------------------------------------------------------------------------
+
+_GUEST_PROP_RE = re.compile(
+    r"/VirtualBox/GuestInfo/Net/(\d+)/([^\s]+)\s+=\s+'([^']*)'"
+)
+
+
+def parse_guest_net_properties(stdout: str) -> list[dict[str, Any]]:
+    """Parse `VBoxManage guestproperty enumerate <vm> /VirtualBox/GuestInfo/Net/*`.
+
+    Returns a list of network interface dicts, one per interface index, e.g.:
+    [
+      {"interface": 0, "ip": "175.20.2.91", "netmask": "255.255.252.0",
+       "broadcast": "255.255.255.255", "mac": "080027E3C08F", "status": "Up"},
+      ...
+    ]
+    Requires VirtualBox Guest Additions to be installed and running inside the VM.
+    """
+    interfaces: dict[int, dict[str, Any]] = {}
+
+    for line in stdout.splitlines():
+        m = _GUEST_PROP_RE.search(line)
+        if not m:
+            continue
+        idx, key, value = int(m.group(1)), m.group(2), m.group(3)
+        iface = interfaces.setdefault(idx, {"interface": idx})
+        if key == "V4/IP":
+            iface["ip"] = value
+        elif key == "V4/Netmask":
+            iface["netmask"] = value
+        elif key == "V4/Broadcast":
+            iface["broadcast"] = value
+        elif key == "Status":
+            iface["status"] = value
+        elif key == "MAC":
+            iface["mac"] = value
+
+    return [interfaces[i] for i in sorted(interfaces)]

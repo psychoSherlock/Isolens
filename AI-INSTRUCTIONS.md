@@ -1,4 +1,4 @@
-# 📄 AI-INSTRUCTIONS.md 
+# 📄 AI-INSTRUCTIONS.md
 
 ```markdown
 # AI Development Instructions – IsoLens
@@ -14,26 +14,25 @@ The architecture is organized under the `core/` directory to maintain logical se
 ---
 
 # 🏗 Project Structure
-
 ```
 
 .
 ├── core/
-│   ├── agent/
-│   ├── controller/
-│   ├── gateway/
-│   ├── interface/
-│   ├── modules/
-│   ├── observer/
-│   ├── storage/
-│   │   ├── database/
-│   │   ├── logs/
-│   │   ├── reports/
-│   │   └── samples/
-│   └── threatintelligence/
+│ ├── agent/
+│ ├── controller/
+│ ├── gateway/
+│ ├── interface/
+│ ├── modules/
+│ ├── observer/
+│ ├── storage/
+│ │ ├── database/
+│ │ ├── logs/
+│ │ ├── reports/
+│ │ └── samples/
+│ └── threatintelligence/
 ├── docs/
-│   ├── ARCHITECTURE.md
-│   └── IDEA.md
+│ ├── ARCHITECTURE.md
+│ └── IDEA.md
 ├── SandboxShare/
 ├── README.md
 ├── LICENSE
@@ -51,6 +50,7 @@ Handles all user-facing logic:
 - Report display
 - Risk score visualization
 - Screenshot rendering
+- Next.js application (App Router) for the web interface
 
 No VM or analysis logic must exist here.
 
@@ -116,11 +116,23 @@ This layer only collects data — it does not interpret it.
 ---
 
 ## `core/agent/`
-Guest-side API service:
-- Runs inside the isolated container/VM
-- Gathers execution logs and tool outputs
-- Provides internal monitoring hooks
-- Acts as the primary collection point inside the sandbox
+Guest-side HTTP service (`isolens_agent.py`) that runs inside the sandbox VM.
+
+- Single-file, stdlib-only Python script (no pip dependencies)
+- HTTP API on the host-only network for receiving commands from the controller
+- Pluggable collector architecture (Sysmon, Procmon, network, screenshots)
+- Copies samples from VirtualBox shared folder, executes them (stub), collects artifacts
+- Packages results as a zip and exports back to SandboxShare for host pickup
+- Thread-safe: execution runs in background thread, HTTP stays responsive
+
+API endpoints:
+- `GET  /api/status`      — health check and agent state
+- `GET  /api/collectors`   — list available collectors
+- `GET  /api/artifacts`    — list collected artifact files
+- `POST /api/execute`      — execute a sample `{"filename": "...", "timeout": 60}`
+- `POST /api/collect`      — run collectors without executing
+- `POST /api/cleanup`      — remove all artifacts
+- `POST /api/shutdown`     — graceful shutdown
 
 ---
 
@@ -175,7 +187,9 @@ Never allow architecture drift.
 
 ## 1️⃣b Versioning Rule
 
-The `/version` endpoint must be updated whenever any part of the project changes (code, docs, tests, configs, dependencies). Treat this as mandatory for every change.
+- Do not version bump for every change. Only bump when the change is meaningful enough to warrant a new version.
+- The `/version` endpoint is only updated when API behavior or API contracts change.
+- For non-API changes that still warrant a release, do not bump the API version; instead, create a new commit and apply the appropriate version tag.
 
 ---
 
@@ -195,7 +209,7 @@ After ANY code change:
 
 ```
 
-TEST_{number}_{short_description}.py
+TEST*{number}*{short_description}.py
 
 ```
 
@@ -218,20 +232,24 @@ Each test script must:
 Example:
 
 ```
+
 [TEST_01_controller_flow] PASS
 About: Controller dry-run builds correct VBoxManage command
 Output:
 {"cmd": ["VBoxManage", "startvm", "TestVM", "--type", "headless"], "returncode": 0, "stdout": "", "stderr": ""}
+
 ```
 
 or
 
 ```
+
 [TEST_02_log_parsing] FAIL
 About: Network events parsed from sample log
 Reason: No network events parsed
 Output:
 <raw parser output here>
+
 ```
 
 ---
@@ -277,8 +295,8 @@ Ensure `.gitignore` includes:
 core/storage/logs/
 core/storage/samples/
 core/storage/database/
-*.vdi
-*.iso
+_.vdi
+_.iso
 .env
 **pycache**/
 
@@ -334,13 +352,13 @@ Keep it readable and structured.
 
 Before finalizing any change:
 
-✔ Update AI-INSTRUCTIONS.md if architecture changed  
-✔ Update docs/ARCHITECTURE.md if needed  
-✔ Add isolated test scripts  
-✔ Run all tests  
-✔ Ensure all tests PASS  
-✔ Update requirements.txt if required  
-✔ Verify .gitignore safety  
+✔ Update AI-INSTRUCTIONS.md if architecture changed
+✔ Update docs/ARCHITECTURE.md if needed
+✔ Add isolated test scripts
+✔ Run all tests
+✔ Ensure all tests PASS
+✔ Update requirements.txt if required
+✔ Verify .gitignore safety
 
 No exceptions.
 ```

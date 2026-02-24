@@ -124,6 +124,20 @@ class VBoxManageClient:
     def snapshot_restore_current(self, vm: str) -> CommandResult:
         return self._run(["snapshot", vm, "restorecurrent"])
 
+    def get_vm_ip_addresses(self, vm: str) -> CommandResult:
+        """Enumerate all network interface IPs from VirtualBox Guest Additions.
+
+        Requires Guest Additions to be installed and running inside the VM.
+        Returns the raw stdout of `guestproperty enumerate` filtered to
+        /VirtualBox/GuestInfo/Net/* so the caller can parse it with
+        `parse_guest_net_properties`.
+        """
+        return self._run([
+            "guestproperty", "enumerate", vm,
+            "--no-timestamp", "--no-flags",
+            "/VirtualBox/GuestInfo/Net/*",
+        ])
+
 
 def _print_result(result: CommandResult, *, as_json: bool) -> None:
     if as_json:
@@ -207,6 +221,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     restore_current.add_argument("--vm", required=True)
 
+    get_ip = sub.add_parser("get-ip", help="Get VM IP addresses via Guest Additions")
+    get_ip.add_argument("--vm", required=True)
+
     return parser
 
 
@@ -247,6 +264,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             result = client.snapshot_restore(args.vm, args.name)
         elif args.command == "snapshot-restore-current":
             result = client.snapshot_restore_current(args.vm)
+        elif args.command == "get-ip":
+            result = client.get_vm_ip_addresses(args.vm)
         else:
             parser.error("Unknown command")
             return 2
