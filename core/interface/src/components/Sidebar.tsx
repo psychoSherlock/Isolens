@@ -34,7 +34,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="px-6 py-6">
         <h1 className="text-2xl font-semibold italic text-violet-600">
-          SecureScan
+          Isolens
         </h1>
       </div>
 

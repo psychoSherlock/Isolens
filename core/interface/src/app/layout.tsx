@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SecureScan",
-  description: "Secure file scanning and analysis platform",
+  title: "Isolens",
+  description: "Intelligent Dynamic Malware Analysis Sandbox",
 };
 
 export default function RootLayout({
