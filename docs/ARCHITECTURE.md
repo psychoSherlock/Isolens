@@ -18,9 +18,31 @@ The system entry layer that routes API requests to the controller.
 
 The orchestration brain that coordinates the VM lifecycle and analysis workflow, including VirtualBox control via VBoxManage.
 
+Contains:
+
+- **`vbox_controller.py`** — VBoxManage CLI wrapper for VM lifecycle (start, stop, snapshot, etc.)
+- **`sandbox_orchestrator.py`** — HTTP + shared-folder orchestrator that coordinates a full analysis run:
+  1. Copies the sample to `SandboxShare/` (VirtualBox shared folder)
+  2. POSTs to the in-VM agent's `/api/execute` endpoint
+  3. Polls `/api/status` until the agent finishes
+  4. Retrieves the results zip from `SandboxShare/`
+  5. Unpacks into `core/storage/reports/<analysis_id>/`
+
 ### `core/agent/`
 
-Guest-side HTTP service (`isolens_agent.py`) running inside the sandbox VM. Uses only Python stdlib — no pip dependencies required. Exposes an HTTP API on the host-only network adapter for commands from the controller. Features a pluggable collector architecture for Sysmon events, Procmon CSV, network captures, and screenshots. Communicates file transfers via VirtualBox Shared Folder (`SandboxShare/`).
+Guest-side HTTP service (`isolens_agent.py`) running inside the sandbox VM. Uses only Python stdlib — no pip dependencies required. Exposes an HTTP API on the host-only network adapter for commands from the controller. Features a pluggable collector architecture:
+
+- **SysmonCollector** — Exports Sysmon event logs (XML + text) via `wevtutil`
+- **ProcmonCollector** — Collects Process Monitor CSV logs
+- **NetworkCollector** — Gathers network captures via tshark
+- **FakeNetCollector** — Collects FakeNet-NG logs and PCAPs
+- **ScreenshotCollector** — Gathers screenshots taken during execution
+- **TcpvconCollector** — Snapshots active TCP/UDP connections via `tcpvcon64`
+- **HandleCollector** — Snapshots open file/registry handles via `handle64`
+
+Execution flow: clears Sysmon → executes sample via `cmd /c start` (simulated double-click) → waits timeout → runs all collectors → packages results as zip → exports to `SandboxShare/`.
+
+Communicates file transfers via VirtualBox Shared Folder (`SandboxShare/`).
 
 ### `core/modules/`
 

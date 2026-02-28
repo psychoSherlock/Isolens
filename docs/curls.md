@@ -160,6 +160,80 @@ curl -s -X POST http://127.0.0.1:6969/api/vms/snapshot/restore-current \
 
 ---
 
+# Analysis Endpoints
+
+Endpoints under `/api/analysis/` coordinate the full sandbox analysis
+pipeline. The gateway orchestrator talks to the in-VM agent over HTTP and
+uses the VirtualBox shared folder for file transfer.
+
+## Submit Analysis
+
+Upload a sample and start the full analysis pipeline. The orchestrator
+copies the sample to `SandboxShare/`, tells the agent to execute it,
+takes VBoxManage screenshots during execution, polls until complete,
+and retrieves the results zip.
+
+The `screenshot_interval` parameter controls how often (in seconds) a
+screenshot of the VM display is captured (default: 5).
+
+```bash
+curl -s -X POST http://127.0.0.1:6969/api/analysis/submit \
+  -F "file=@/path/to/sample.exe" \
+  -F "timeout=60" \
+  -F "screenshot_interval=5"
+```
+
+## Analysis Status
+
+Return the current or most recent analysis result.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/status
+```
+
+## Check VM Readiness
+
+Verify the sandbox agent is reachable, required tools are available, and
+the shared folder exists on the host.
+
+```bash
+curl -s -X POST http://127.0.0.1:6969/api/analysis/check-vm
+```
+
+## Cleanup Agent Artifacts
+
+Ask the agent to remove all collected artifacts.
+
+```bash
+curl -s -X POST http://127.0.0.1:6969/api/analysis/cleanup
+```
+
+## Agent Status (Proxy)
+
+Proxy to the in-VM agent's `/api/status` endpoint.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/agent/status
+```
+
+## Agent Collectors (Proxy)
+
+Proxy to the in-VM agent's `/api/collectors` endpoint.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/agent/collectors
+```
+
+## Agent Artifacts (Proxy)
+
+Proxy to the in-VM agent's `/api/artifacts` endpoint.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/agent/artifacts
+```
+
+---
+
 # Guest Agent Endpoints
 
 The following endpoints are served by `isolens_agent.py` running **inside** the sandbox VM.
@@ -170,7 +244,7 @@ Default address: `http://<vm-host-only-ip>:9090`.
 Health check and current agent state.
 
 ```bash
-curl -s http://192.168.56.101:9090/api/status
+curl -s http://192.168.56.105:9090/api/status
 ```
 
 ## List Collectors
@@ -178,7 +252,7 @@ curl -s http://192.168.56.101:9090/api/status
 List available artifact collectors and their availability.
 
 ```bash
-curl -s http://192.168.56.101:9090/api/collectors
+curl -s http://192.168.56.105:9090/api/collectors
 ```
 
 ## List Artifacts
@@ -186,7 +260,7 @@ curl -s http://192.168.56.101:9090/api/collectors
 List collected artifact files.
 
 ```bash
-curl -s http://192.168.56.101:9090/api/artifacts
+curl -s http://192.168.56.105:9090/api/artifacts
 ```
 
 ## Execute Sample
@@ -194,7 +268,7 @@ curl -s http://192.168.56.101:9090/api/artifacts
 Execute a sample file placed in the shared folder. Runs in the background.
 
 ```bash
-curl -s -X POST http://192.168.56.101:9090/api/execute \
+curl -s -X POST http://192.168.56.105:9090/api/execute \
   -H 'Content-Type: application/json' \
   -d '{"filename":"sample.exe","timeout":60}'
 ```
@@ -204,7 +278,7 @@ curl -s -X POST http://192.168.56.101:9090/api/execute \
 Run all collectors without executing a sample.
 
 ```bash
-curl -s -X POST http://192.168.56.101:9090/api/collect
+curl -s -X POST http://192.168.56.105:9090/api/collect
 ```
 
 ## Cleanup Artifacts
@@ -212,7 +286,7 @@ curl -s -X POST http://192.168.56.101:9090/api/collect
 Remove all collected artifacts from the working directory.
 
 ```bash
-curl -s -X POST http://192.168.56.101:9090/api/cleanup
+curl -s -X POST http://192.168.56.105:9090/api/cleanup
 ```
 
 ## Shutdown Agent
@@ -220,5 +294,5 @@ curl -s -X POST http://192.168.56.101:9090/api/cleanup
 Gracefully shut down the agent service.
 
 ```bash
-curl -s -X POST http://192.168.56.101:9090/api/shutdown
+curl -s -X POST http://192.168.56.105:9090/api/shutdown
 ```

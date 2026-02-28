@@ -78,6 +78,7 @@ Central workflow coordinator:
 - Call modules
 - Call threatintelligence
 - Store results
+- **VBoxManage screenshot capture** during analysis execution
 
 This is the orchestration brain of IsoLens.
 
@@ -120,8 +121,9 @@ Guest-side HTTP service (`isolens_agent.py`) that runs inside the sandbox VM.
 
 - Single-file, stdlib-only Python script (no pip dependencies)
 - HTTP API on the host-only network for receiving commands from the controller
-- Pluggable collector architecture (Sysmon, Procmon, network, screenshots)
-- Copies samples from VirtualBox shared folder, executes them (stub), collects artifacts
+- Pluggable collector architecture (Sysmon, Procmon, network, FakeNet, screenshots, handle, tcpvcon)
+- Copies samples from VirtualBox shared folder, executes them via `schtasks /it` (interactive session), collects artifacts
+- Active screenshot capture using PowerShell + System.Drawing (also captured from host via VBoxManage)
 - Packages results as a zip and exports back to SandboxShare for host pickup
 - Thread-safe: execution runs in background thread, HTTP stays responsive
 
@@ -129,7 +131,7 @@ API endpoints:
 - `GET  /api/status`      — health check and agent state
 - `GET  /api/collectors`   — list available collectors
 - `GET  /api/artifacts`    — list collected artifact files
-- `POST /api/execute`      — execute a sample `{"filename": "...", "timeout": 60}`
+- `POST /api/execute`      — execute a sample `{"filename": "...", "timeout": 60, "screenshot_interval": 5}`
 - `POST /api/collect`      — run collectors without executing
 - `POST /api/cleanup`      — remove all artifacts
 - `POST /api/shutdown`     — graceful shutdown

@@ -1,6 +1,7 @@
 core/storage/logs/
 core/storage/samples/
 core/storage/database/
+core/storage/reports/
 *.vdi
 *.iso
 .env
