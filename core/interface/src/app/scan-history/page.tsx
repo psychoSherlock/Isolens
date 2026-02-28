@@ -7,10 +7,7 @@ import {
   IoTimeOutline,
   IoAlertCircleOutline,
 } from "react-icons/io5";
-import {
-  listReports,
-  type AnalysisResult,
-} from "@/lib/api";
+import { listReports, type AnalysisResult } from "@/lib/api";
 
 /* ── Badge helpers ─────────────────────────────────────── */
 
@@ -58,7 +55,7 @@ export default function ScanHistoryPage() {
         const resp = await listReports();
         if (resp.status === "ok" && resp.data) {
           setReports(
-            (resp.data as { reports: AnalysisResult[] }).reports || []
+            (resp.data as { reports: AnalysisResult[] }).reports || [],
           );
         }
       } catch {
@@ -70,7 +67,7 @@ export default function ScanHistoryPage() {
   }, []);
 
   const filtered = reports.filter((r) =>
-    r.sample_name?.toLowerCase().includes(search.toLowerCase())
+    r.sample_name?.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (

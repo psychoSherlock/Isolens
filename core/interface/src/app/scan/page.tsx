@@ -129,7 +129,7 @@ export default function ScanPage() {
       const resp = await submitAnalysis(
         selectedFile,
         timeout,
-        captureScreenshots ? screenshotInterval : 0
+        captureScreenshots ? screenshotInterval : 0,
       );
 
       if (resp.status === "error") {
@@ -162,7 +162,7 @@ export default function ScanPage() {
       setScanState("failed");
       setStatusMsg("Connection error");
       setError(
-        err instanceof Error ? err.message : "Failed to connect to gateway"
+        err instanceof Error ? err.message : "Failed to connect to gateway",
       );
       setProgress(0);
     }
@@ -182,7 +182,9 @@ export default function ScanPage() {
     switch (scanState) {
       case "running":
       case "uploading":
-        return <IoHourglassOutline className="w-5 h-5 text-violet-500 animate-pulse" />;
+        return (
+          <IoHourglassOutline className="w-5 h-5 text-violet-500 animate-pulse" />
+        );
       case "complete":
         return <IoCheckmarkCircle className="w-5 h-5 text-green-500" />;
       case "failed":
@@ -260,8 +262,8 @@ export default function ScanPage() {
                     scanState === "failed"
                       ? "bg-red-500"
                       : scanState === "complete"
-                      ? "bg-green-500"
-                      : "bg-violet-500"
+                        ? "bg-green-500"
+                        : "bg-violet-500"
                   }`}
                   style={{ width: `${progress}%` }}
                 />
@@ -406,11 +408,15 @@ export default function ScanPage() {
                 <input
                   type="number"
                   value={screenshotInterval}
-                  onChange={(e) => setScreenshotInterval(Number(e.target.value))}
+                  onChange={(e) =>
+                    setScreenshotInterval(Number(e.target.value))
+                  }
                   min={1}
                   max={30}
                   className="w-16 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                  disabled={scanState === "running" || scanState === "uploading"}
+                  disabled={
+                    scanState === "running" || scanState === "uploading"
+                  }
                 />
                 <span className="text-sm text-gray-500">sec</span>
               </div>
@@ -442,8 +448,8 @@ export default function ScanPage() {
             {scanState === "uploading"
               ? "Uploading..."
               : scanState === "running"
-              ? "Analysis Running..."
-              : "Start Scan"}
+                ? "Analysis Running..."
+                : "Start Scan"}
           </button>
         </div>
       </div>

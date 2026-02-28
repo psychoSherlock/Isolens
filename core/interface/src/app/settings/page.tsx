@@ -70,7 +70,9 @@ function CollapsibleSection({
         )}
       </button>
       {isOpen && (
-        <div className={`px-6 pb-5 border-t border-gray-100 ${comingSoon ? "opacity-50" : ""}`}>
+        <div
+          className={`px-6 pb-5 border-t border-gray-100 ${comingSoon ? "opacity-50" : ""}`}
+        >
           {children}
         </div>
       )}
@@ -162,7 +164,9 @@ export default function SettingsPage() {
                 <input
                   type="number"
                   value={screenshotInterval}
-                  onChange={(e) => setScreenshotInterval(Number(e.target.value))}
+                  onChange={(e) =>
+                    setScreenshotInterval(Number(e.target.value))
+                  }
                   className="w-16 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
                 />
                 <span className="text-sm text-gray-600">seconds</span>
@@ -221,11 +225,17 @@ export default function SettingsPage() {
         </CollapsibleSection>
 
         {/* Storage Settings — coming soon */}
-        <CollapsibleSection title="Storage Settings" defaultOpen={false} comingSoon>
+        <CollapsibleSection
+          title="Storage Settings"
+          defaultOpen={false}
+          comingSoon
+        >
           <div className="pt-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-700">Sample Storage:</span>
-              <span className="text-sm text-gray-600">core/storage/samples/</span>
+              <span className="text-sm text-gray-600">
+                core/storage/samples/
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-700">Log Storage:</span>
@@ -233,13 +243,19 @@ export default function SettingsPage() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-700">Report Storage:</span>
-              <span className="text-sm text-gray-600">core/storage/reports/</span>
+              <span className="text-sm text-gray-600">
+                core/storage/reports/
+              </span>
             </div>
           </div>
         </CollapsibleSection>
 
         {/* User Preferences — coming soon */}
-        <CollapsibleSection title="User Preferences" defaultOpen={false} comingSoon>
+        <CollapsibleSection
+          title="User Preferences"
+          defaultOpen={false}
+          comingSoon
+        >
           <div className="pt-4 space-y-4">
             <div>
               <label className="block text-sm text-gray-700 mb-2">Theme:</label>

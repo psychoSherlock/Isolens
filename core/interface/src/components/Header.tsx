@@ -30,17 +30,13 @@ export default function Header() {
             gatewayOk === null
               ? "bg-gray-300"
               : gatewayOk
-              ? "bg-green-500"
-              : "bg-red-400"
+                ? "bg-green-500"
+                : "bg-red-400"
           }`}
         />
         <span className="text-xs text-gray-500">
           Gateway{" "}
-          {gatewayOk === null
-            ? "..."
-            : gatewayOk
-            ? "Connected"
-            : "Offline"}
+          {gatewayOk === null ? "..." : gatewayOk ? "Connected" : "Offline"}
         </span>
       </div>
 

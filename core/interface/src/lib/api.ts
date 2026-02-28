@@ -67,7 +67,7 @@ async function get<T>(url: string): Promise<ApiResponse<T>> {
 
 async function post<T>(
   url: string,
-  body?: Record<string, unknown>
+  body?: Record<string, unknown>,
 ): Promise<ApiResponse<T>> {
   const res = await fetch(url, {
     method: "POST",
@@ -99,7 +99,7 @@ export async function listRunningVMs() {
 
 export async function getVMIP(vm: string) {
   return get<{ vm: string; interfaces: Record<string, string>[] }>(
-    `/api/vms/ip?vm=${encodeURIComponent(vm)}`
+    `/api/vms/ip?vm=${encodeURIComponent(vm)}`,
   );
 }
 
@@ -148,14 +148,14 @@ export async function resumeVM(vm: string) {
 export async function restoreSnapshot(vm: string, name: string) {
   return post<{ success: boolean; message: string }>(
     "/api/vms/snapshot/restore",
-    { vm, name, dry_run: false, raise_on_error: true }
+    { vm, name, dry_run: false, raise_on_error: true },
   );
 }
 
 export async function restoreCurrentSnapshot(vm: string) {
   return post<{ success: boolean; message: string }>(
     "/api/vms/snapshot/restore-current",
-    { vm, dry_run: false, raise_on_error: true }
+    { vm, dry_run: false, raise_on_error: true },
   );
 }
 
@@ -164,13 +164,13 @@ export async function restoreCurrentSnapshot(vm: string) {
 export async function submitAnalysis(
   file: File,
   timeout = 60,
-  screenshotInterval = 5
+  screenshotInterval = 5,
 ): Promise<ApiResponse<AnalysisResult>> {
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(
     `/api/analysis/submit?timeout=${timeout}&screenshot_interval=${screenshotInterval}`,
-    { method: "POST", body: formData }
+    { method: "POST", body: formData },
   );
   return res.json();
 }
@@ -205,7 +205,7 @@ export async function getAgentArtifacts() {
 
 export async function listScreenshots(analysisId: string) {
   return get<{ screenshots: string[]; analysis_id: string }>(
-    `/api/analysis/report/${encodeURIComponent(analysisId)}/screenshots`
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/screenshots`,
   );
 }
 

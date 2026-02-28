@@ -44,7 +44,9 @@ export default function SandboxPage() {
   const [agentReachable, setAgentReachable] = useState(false);
 
   // Analysis
-  const [currentAnalysis, setCurrentAnalysis] = useState<AnalysisResult | null>(null);
+  const [currentAnalysis, setCurrentAnalysis] = useState<AnalysisResult | null>(
+    null,
+  );
 
   // UI
   const [loading, setLoading] = useState(true);
@@ -68,7 +70,7 @@ export default function SandboxPage() {
         const running = (runResp.data as { vms: VMEntry[] }).vms || [];
         setRunningVMs(running);
         const isRunning = running.some(
-          (v) => v.name === selectedVM || v.uuid === selectedVM
+          (v) => v.name === selectedVM || v.uuid === selectedVM,
         );
         setVMState(isRunning ? "running" : "poweroff");
       }
@@ -87,7 +89,9 @@ export default function SandboxPage() {
       try {
         const ipResp = await getVMIP(selectedVM);
         if (ipResp.status === "ok" && ipResp.data) {
-          const ifaces = (ipResp.data as { interfaces: Record<string, string>[] }).interfaces;
+          const ifaces = (
+            ipResp.data as { interfaces: Record<string, string>[] }
+          ).interfaces;
           if (ifaces && ifaces.length > 0) {
             const firstIP = Object.values(ifaces[0])[0] || "";
             setVMIP(firstIP);
@@ -231,7 +235,9 @@ export default function SandboxPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Sandbox Environment</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          Sandbox Environment
+        </h1>
         <button
           onClick={fetchAll}
           disabled={loading}
@@ -273,7 +279,9 @@ export default function SandboxPage() {
           <div>
             <h2 className="text-xl font-semibold text-gray-900">
               Sandbox Status:{" "}
-              <span className={`font-bold ${isRunning ? "text-green-600" : "text-gray-500"}`}>
+              <span
+                className={`font-bold ${isRunning ? "text-green-600" : "text-gray-500"}`}
+              >
                 {isRunning ? "Running" : "Stopped"}
               </span>
             </h2>
@@ -504,8 +512,8 @@ export default function SandboxPage() {
             </span>
           </div>
           <p className="text-sm text-gray-500 mb-3">
-            Pause/Resume, Save State, Named Snapshots, and real-time activity log
-            will be available here.
+            Pause/Resume, Save State, Named Snapshots, and real-time activity
+            log will be available here.
           </p>
           <div className="flex gap-3">
             <button
