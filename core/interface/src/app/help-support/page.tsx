@@ -192,7 +192,7 @@ export default function HelpSupportPage() {
           />
           <FAQItem
             question="What data is collected during analysis?"
-            answer="IsoLens collects Sysmon logs (process creation, network, file, registry events), network capture (tshark/FakeNet), process handles, TCP connections, screenshots, and optionally Procmon logs."
+            answer="IsoLens collects Sysmon logs (process creation, network, file, registry events), network capture (tshark), process handles, TCP connections, screenshots, and optionally Procmon logs."
           />
           <FAQItem
             question="How are screenshots captured?"

@@ -52,8 +52,28 @@ import csv
 import io
 import xml.etree.ElementTree as ET
 import zipfile
+import socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Dict, List, Optional
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Custom HTTPServer — skip socket.getfqdn() which hangs on sandbox VMs
+# ═══════════════════════════════════════════════════════════════════════════
+
+class _NoFQDNHTTPServer(HTTPServer):
+    """HTTPServer that does NOT call socket.getfqdn() during server_bind.
+
+    On isolated sandbox VMs without proper DNS, getfqdn() on '0.0.0.0'
+    triggers a reverse-DNS lookup that can hang indefinitely, preventing
+    the agent from ever starting.
+    """
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host or "localhost"
+        self.server_port = port
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1568,7 +1588,7 @@ def create_server(
         {"agent": agent, "shutdown_event": shutdown_event},
     )
 
-    server = HTTPServer((host, port), handler)
+    server = _NoFQDNHTTPServer((host, port), handler)
     server.shutdown_event = shutdown_event  # type: ignore[attr-defined]
     return server
 

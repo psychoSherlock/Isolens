@@ -1,98 +1,141 @@
 @echo off
-REM ================================================================
-REM  IsoLens VM Setup Script — Run as Administrator inside the VM
-REM  This script: fixes firewall, starts SSH, deploys agent,
-REM  sets up auto-start for agent and Procmon.
-REM ================================================================
+REM ===================================================================
+REM  IsoLens VM Setup Script
+REM  Run this ONCE from Z:\ inside the sandbox VM (as admin)
+REM  Creates directory structure, copies agent, installs auto-start bat
+REM ===================================================================
 
-echo.
-echo ========================================
+echo ===================================
 echo   IsoLens VM Setup
-echo ========================================
+echo ===================================
+
+REM -- Step 1: Map Z: drive if needed ---------------------------------
 echo.
+echo [Step 1] Ensuring Z: drive is mapped...
+if not exist Z:\ (
+    net use Z: \\VBoxSvr\SandboxShare /persistent:yes
+    if errorlevel 1 (
+        echo [FAIL] Could not map Z: drive. Make sure Shared Folder is configured in VirtualBox.
+        pause
+        exit /b 1
+    )
+)
+echo [OK] Z: drive available.
 
-REM --- 1. Fix Firewall ---
-echo [1/7] Configuring firewall rules...
-netsh advfirewall firewall add rule name="IsoLens SSH" dir=in action=allow protocol=TCP localport=22 >NUL 2>&1
-netsh advfirewall firewall add rule name="IsoLens Agent" dir=in action=allow protocol=TCP localport=9090 >NUL 2>&1
-netsh advfirewall firewall add rule name="Allow ICMPv4" protocol=icmpv4:8,any dir=in action=allow >NUL 2>&1
-echo    Firewall rules added (SSH:22, Agent:9090, ICMP)
+REM -- Step 2: Create directory structure -----------------------------
+echo.
+echo [Step 2] Creating IsoLens directories...
+mkdir C:\IsoLens 2>nul
+mkdir C:\IsoLens\agent 2>nul
+mkdir C:\IsoLens\artifacts 2>nul
+mkdir C:\IsoLens\samples 2>nul
+echo [OK] Directories created.
 
-REM --- 2. Start SSH ---
-echo [2/7] Starting SSH service...
-sc config sshd start= auto >NUL 2>&1
-net start sshd >NUL 2>&1
-echo    sshd configured for auto-start
-
-REM --- 3. Check Python ---
-echo [3/7] Checking Python...
-python --version 2>&1
-where python 2>&1
+REM -- Step 3: Copy agent script --------------------------------------
+echo.
+echo [Step 3] Copying agent script...
+copy /Y Z:\isolens_agent.py C:\IsoLens\agent\isolens_agent.py
 if errorlevel 1 (
-    echo    ERROR: Python not found! Install Python first.
+    echo [FAIL] Could not copy isolens_agent.py from Z:\
+    echo Make sure isolens_agent.py is in the SandboxShare folder.
     pause
     exit /b 1
 )
+echo [OK] Agent copied.
 
-REM --- 4. Deploy Agent ---
-echo [4/7] Deploying agent to C:\IsoLens\agent\...
-if not exist "C:\IsoLens\agent" mkdir "C:\IsoLens\agent"
-copy /Y "Z:\isolens_agent.py" "C:\IsoLens\agent\isolens_agent.py" >NUL
-if exist "C:\IsoLens\agent\isolens_agent.py" (
-    echo    Agent deployed successfully
-) else (
-    echo    ERROR: Failed to copy agent from Z:\
-    echo    Make sure the shared folder Z: is mapped
+REM -- Step 4: Verify Python installation -----------------------------
+echo.
+echo [Step 4] Checking Python installation...
+set "PYTHON_PATH=C:\Users\admin\AppData\Local\Python\bin\python.exe"
+if not exist "%PYTHON_PATH%" (
+    echo [FAIL] Python not found at %PYTHON_PATH%
+    echo Install Python from https://www.python.org/downloads/
+    echo Make sure to install for the 'admin' user.
     pause
     exit /b 1
 )
+echo [OK] Python found at %PYTHON_PATH%
 
-REM --- 5. Create agent startup batch ---
-echo [5/7] Creating agent auto-start...
+REM -- Step 5: Generate start_agent.bat with FULL Python path ---------
+REM   IMPORTANT: Do NOT use bare 'python' — the Windows Store stub
+REM   (WindowsApps\python.exe) is found first in PATH and silently fails.
+REM   IMPORTANT: Do NOT use Z:\ with trailing backslash in --share arg.
+REM   Windows C runtime parses \<space> as escape, mangling arguments.
+echo.
+echo [Step 5] Generating start_agent.bat...
 (
-echo @echo off
-echo cd /d C:\IsoLens\agent
-echo python isolens_agent.py --host 0.0.0.0 --port 9090 --share "Z:\" --workdir "C:\IsoLens"
-) > "C:\IsoLens\agent\start_agent.bat"
-
-REM Add to Startup folder (runs on login)
-copy /Y "C:\IsoLens\agent\start_agent.bat" "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\isolens_agent.bat" >NUL
-echo    Agent auto-start configured (Startup folder)
-
-REM --- 6. Create Procmon startup ---
-echo [6/7] Creating Procmon auto-start...
-if exist "C:\IsoLens\tools\Procmon64.exe" (
-    REM Procmon in quiet background mode: logs to backing file, no GUI
-    (
     echo @echo off
-    echo cd /d C:\IsoLens\tools
-    echo start "" /B Procmon64.exe /AcceptEula /Quiet /Minimized /BackingFile C:\IsoLens\artifacts\procmon\procmon.pml
-    ) > "C:\IsoLens\tools\start_procmon.bat"
-    copy /Y "C:\IsoLens\tools\start_procmon.bat" "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\isolens_procmon.bat" >NUL
-    echo    Procmon auto-start configured
+    echo title IsoLens Agent
+    echo echo ============================================
+    echo echo   IsoLens Agent Launcher
+    echo echo ============================================
+    echo echo.
+    echo if not exist Z:\ ^(
+    echo     echo [*] Mapping Z: drive...
+    echo     net use Z: \\VBoxSvr\SandboxShare /persistent:yes
+    echo     if errorlevel 1 ^(
+    echo         echo [FAIL] Could not map Z: drive.
+    echo         pause
+    echo         exit /b 1
+    echo     ^)
+    echo     timeout /t 2 /nobreak ^>nul
+    echo ^)
+    echo set "PYTHON=%PYTHON_PATH%"
+    echo if not exist "%%PYTHON%%" ^(
+    echo     echo [FAIL] Python not found
+    echo     pause
+    echo     exit /b 1
+    echo ^)
+    echo echo [OK] Python : %%PYTHON%%
+    echo echo [OK] Share  : Z:
+    echo echo [*] Starting agent on port 9090...
+    echo echo.
+    echo cd /d C:\IsoLens
+    echo "%%PYTHON%%" C:\IsoLens\agent\isolens_agent.py --host 0.0.0.0 --port 9090 --share Z: --workdir C:\IsoLens
+    echo echo.
+    echo echo [!] Agent exited unexpectedly.
+    echo pause
+) > C:\IsoLens\agent\start_agent.bat
+echo [OK] start_agent.bat created.
+
+REM -- Step 6: Install to Startup folder for auto-start ---------------
+echo.
+echo [Step 6] Installing auto-start bat to Startup folder...
+set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+copy /Y C:\IsoLens\agent\start_agent.bat "%STARTUP%\isolens_agent.bat"
+if errorlevel 1 (
+    echo [WARN] Could not copy to Startup folder.
 ) else (
-    echo    Procmon64.exe not found at C:\IsoLens\tools\ — skipping
+    echo [OK] Agent will auto-start on login.
 )
 
-REM --- 7. Start agent NOW ---
-echo [7/7] Starting agent now...
-if not exist "C:\IsoLens\artifacts\procmon" mkdir "C:\IsoLens\artifacts\procmon"
-start "IsoLens Agent" cmd /c "cd /d C:\IsoLens\agent && python isolens_agent.py --host 0.0.0.0 --port 9090 --share Z:\ --workdir C:\IsoLens"
+REM -- Step 7: Copy malware emulator (optional) -----------------------
+echo.
+echo [Step 7] Copying malware emulator (if available)...
+if exist Z:\malware_emulator.cs (
+    copy /Y Z:\malware_emulator.cs C:\IsoLens\samples\malware_emulator.cs
+    echo [OK] malware_emulator.cs copied.
+) else (
+    echo [SKIP] malware_emulator.cs not found in Z:\
+)
+if exist Z:\build_emulator.bat (
+    copy /Y Z:\build_emulator.bat C:\IsoLens\samples\build_emulator.bat
+    echo [OK] build_emulator.bat copied.
+) else (
+    echo [SKIP] build_emulator.bat not found in Z:\
+)
 
-REM Give it 3 seconds to bind
-timeout /t 3 /nobreak >NUL
-
-REM Quick check
 echo.
-echo ========================================
-echo   Verification
-echo ========================================
-netstat -an | findstr ":9090"
-netstat -an | findstr ":22"
+echo ===================================
+echo   Setup Complete!
+echo ===================================
 echo.
-echo If you see LISTENING on ports 22 and 9090, setup is complete!
+echo Agent location:  C:\IsoLens\agent\isolens_agent.py
+echo Launcher:        C:\IsoLens\agent\start_agent.bat
+echo Auto-start:      %STARTUP%\isolens_agent.bat
+echo Python:          %PYTHON_PATH%
 echo.
-echo Test from host:
-echo   curl http://192.168.56.105:9090/api/status
+echo To test now, run:  C:\IsoLens\agent\start_agent.bat
+echo Or reboot to verify auto-start works.
 echo.
 pause

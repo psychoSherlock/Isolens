@@ -216,3 +216,94 @@ export function screenshotURL(analysisId: string, filename: string): string {
 export async function listReports() {
   return get<{ reports: AnalysisResult[] }>("/api/analysis/reports/list");
 }
+
+// ─── Report Data (detailed collector output) ─────────────────────────────
+
+export interface SysmonProcess {
+  image: string;
+  pid: string;
+  parent: string;
+  cmd: string;
+  user: string;
+  time: string;
+}
+
+export interface SysmonNetConn {
+  image: string;
+  proto: string;
+  src: string;
+  dst: string;
+  dst_host: string;
+}
+
+export interface SysmonRegEvent {
+  type: string;
+  key: string;
+  details: string;
+}
+
+export interface SysmonData {
+  total_events: number;
+  sample_events: number;
+  sample_process: string;
+  sample_pids: string[];
+  processes_created: SysmonProcess[];
+  network_connections: SysmonNetConn[];
+  dns_queries: string[];
+  files_created: string[];
+  registry_events: SysmonRegEvent[];
+  dlls_loaded: string[];
+}
+
+export interface ProcmonData {
+  sample_process: string;
+  total_rows: number;
+  sample_events: number;
+  file_activity: {
+    notable: Record<string, string[]>;
+    all_ops: Record<string, number>;
+  };
+  registry_activity: {
+    notable: Record<string, string[]>;
+    all_ops: Record<string, number>;
+  };
+  network_activity: { op: string; path: string; result: string }[];
+  process_activity: { op: string; path: string; detail: string }[];
+}
+
+export interface NetworkData {
+  tcp_conversations?: string;
+  dns_queries?: string[];
+  http_requests?: { host: string; uri: string; method: string }[];
+  tcp_error?: string;
+  dns_error?: string;
+  http_error?: string;
+}
+
+export interface TcpvconRow {
+  [key: string]: string;
+}
+
+export interface CollectorMeta {
+  collector: string;
+  status: string;
+  files: string[];
+  error?: string;
+}
+
+export interface ReportData {
+  manifest: AnalysisResult | null;
+  metadata: { collectors: CollectorMeta[]; files: string[] } | null;
+  sysmon: SysmonData | null;
+  procmon: ProcmonData | null;
+  network: NetworkData | null;
+  handle: string | null;
+  tcpvcon: TcpvconRow[] | null;
+  screenshots: string[];
+}
+
+export async function getReportData(analysisId: string) {
+  return get<ReportData>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/data`,
+  );
+}

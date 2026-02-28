@@ -324,3 +324,11 @@ List all analysis reports with saved manifests.
 ```bash
 curl -s http://127.0.0.1:6969/api/analysis/reports/list
 ```
+
+## Get Full Report Data
+
+Retrieve all parsed collector data for a single analysis (Sysmon, Procmon, Network, Handle, Tcpvcon, screenshots) in one response.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/data
+```

@@ -229,3 +229,73 @@ def list_reports():
                 except Exception:
                     pass
     return _ok({"reports": reports})
+
+
+@router.get("/report/{analysis_id}/data")
+def get_report_data(analysis_id: str):
+    """Return all parsed collector data for an analysis in one response.
+
+    Reads JSON summaries, text files, and CSV from the report directory
+    to assemble a comprehensive data payload for the frontend.
+    """
+    import csv as csv_mod
+    import io
+
+    safe_id = os.path.basename(analysis_id)
+    report_dir = os.path.join(DEFAULT_REPORTS_DIR, safe_id)
+    if not os.path.isdir(report_dir):
+        return _error("Report not found", details=f"No directory for {safe_id}")
+
+    def _read_json(path: str):
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return None
+        return None
+
+    def _read_text(path: str):
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    return f.read()
+            except Exception:
+                return None
+        return None
+
+    def _read_csv(path: str):
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    reader = csv_mod.DictReader(f)
+                    return [row for row in reader]
+            except Exception:
+                return None
+        return None
+
+    # Collect all data
+    artifacts_dir = os.path.join(report_dir, "artifacts")
+    data = {
+        "manifest": _read_json(os.path.join(report_dir, "analysis_manifest.json")),
+        "metadata": _read_json(os.path.join(artifacts_dir, "metadata.json")),
+        "sysmon": _read_json(os.path.join(artifacts_dir, "sysmon", "sysmon_summary.json")),
+        "procmon": _read_json(os.path.join(artifacts_dir, "procmon", "procmon_summary.json")),
+        "network": _read_json(os.path.join(artifacts_dir, "network", "network_summary.json")),
+        "handle": _read_text(os.path.join(artifacts_dir, "handle", "handle_snapshot.txt")),
+        "tcpvcon": _read_csv(os.path.join(artifacts_dir, "tcpvcon", "tcpvcon_snapshot.csv")),
+    }
+
+    # Collect screenshots from both locations
+    screenshots = []
+    for ss_dir in [
+        os.path.join(report_dir, "screenshots"),
+        os.path.join(artifacts_dir, "screenshots"),
+    ]:
+        if os.path.isdir(ss_dir):
+            for f in sorted(os.listdir(ss_dir)):
+                if f.lower().endswith((".png", ".jpg", ".jpeg")):
+                    screenshots.append(f)
+    data["screenshots"] = sorted(set(screenshots))
+
+    return _ok(data)

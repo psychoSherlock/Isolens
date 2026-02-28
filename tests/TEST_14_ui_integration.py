@@ -115,12 +115,12 @@ check(
 # ── Check reports page shows screenshots ─────────────────────────────
 
 reports_src = read(pages_to_check["reports"])
-has_screenshots = "screenshotURL" in reports_src and "listScreenshots" in reports_src
+has_screenshots = "screenshotURL" in reports_src and ("listScreenshots" in reports_src or "getReportData" in reports_src)
 check(
     "Reports page shows screenshots",
-    "Reports page uses screenshotURL and listScreenshots",
+    "Reports page uses screenshotURL and getReportData/listScreenshots",
     has_screenshots,
-    f"screenshotURL={has_screenshots}",
+    f"screenshotURL={'screenshotURL' in reports_src}, reportData={'getReportData' in reports_src}",
 )
 
 # ── Check sandbox page has VM controls ──────────────────────────────
@@ -189,11 +189,41 @@ analysis_routes = read(os.path.join(PROJECT_ROOT, "core", "gateway", "analysis_r
 has_screenshot_list = "list_screenshots" in analysis_routes
 has_file_serve = "serve_report_file" in analysis_routes
 has_reports_list = "list_reports" in analysis_routes
+has_report_data = "get_report_data" in analysis_routes
 check(
     "Gateway screenshot endpoints",
-    "Gateway has screenshot list, file serve, and reports list endpoints",
-    has_screenshot_list and has_file_serve and has_reports_list,
-    f"list={has_screenshot_list}, serve={has_file_serve}, reports_list={has_reports_list}",
+    "Gateway has screenshot list, file serve, reports list, and report data endpoints",
+    has_screenshot_list and has_file_serve and has_reports_list and has_report_data,
+    f"list={has_screenshot_list}, serve={has_file_serve}, reports_list={has_reports_list}, data={has_report_data}",
+)
+
+# ── Check reports page has two tabs (Report + AI Summary) ───────────
+
+reports_src_full = read(pages_to_check["reports"])
+has_report_tab = 'activeTab === "report"' in reports_src_full or "activeTab" in reports_src_full
+has_ai_tab = "AI Summary" in reports_src_full or "Coming Soon" in reports_src_full
+has_sysmon_section = "SysmonSection" in reports_src_full
+has_procmon_section = "ProcmonSection" in reports_src_full
+has_network_section = "NetworkSection" in reports_src_full
+has_gallery = "ScreenshotGallery" in reports_src_full
+has_hover = "startHoverAdvance" in reports_src_full or "hoverTimerRef" in reports_src_full
+check(
+    "Reports page two-tab layout",
+    "Reports page has Report tab and AI Summary Coming Soon tab",
+    has_report_tab and has_ai_tab,
+    f"report_tab={has_report_tab}, ai_tab={has_ai_tab}",
+)
+check(
+    "Reports page collector sections",
+    "Reports page has Sysmon, Procmon, Network sections",
+    has_sysmon_section and has_procmon_section and has_network_section,
+    f"sysmon={has_sysmon_section}, procmon={has_procmon_section}, network={has_network_section}",
+)
+check(
+    "Reports page screenshot gallery",
+    "Reports page has ScreenshotGallery with hover-to-advance",
+    has_gallery and has_hover,
+    f"gallery={has_gallery}, hover={has_hover}",
 )
 
 # ── Summary ──────────────────────────────────────────────────────────

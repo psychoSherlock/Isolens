@@ -132,18 +132,18 @@ def test_handle_collector_exists():
 
 
 def test_all_collectors_registered():
-    """IsoLensAgent registers all 7 expected collectors."""
+    """IsoLensAgent registers all 6 expected collectors."""
     import tempfile
     from core.agent.isolens_agent import IsoLensAgent
     tmp = tempfile.mkdtemp(prefix="isolens_test_agent_")
     try:
         agent = IsoLensAgent(share_path=tmp, workdir=tmp)
         names = [c.name for c in agent.collectors]
-        expected = {"sysmon", "procmon", "network", "fakenet", "screenshots", "tcpvcon", "handle"}
+        expected = {"sysmon", "procmon", "network", "screenshots", "tcpvcon", "handle"}
         missing = expected - set(names)
         ok = len(missing) == 0
         report(
-            "All 7 collectors registered",
+            "All 6 collectors registered",
             ok,
             f"registered={names}",
             f"Missing: {missing}" if missing else "",

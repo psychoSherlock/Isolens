@@ -1,3 +1,4 @@
+$batContent = @"
 @echo off
 title IsoLens Agent
 echo ============================================
@@ -46,3 +47,18 @@ cd /d C:\IsoLens
 echo.
 echo [!] Agent exited unexpectedly.
 pause
+"@
+
+# Deploy bat to both locations
+Set-Content -Path "C:\IsoLens\agent\start_agent.bat" -Value $batContent -Encoding ASCII
+Copy-Item "C:\IsoLens\agent\start_agent.bat" "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\isolens_agent.bat" -Force
+
+# Also copy updated agent from shared folder if available
+if (Test-Path "Z:\isolens_agent.py") {
+    Copy-Item "Z:\isolens_agent.py" "C:\IsoLens\agent\isolens_agent.py" -Force
+    Write-Host "[OK] Agent script updated from Z:\isolens_agent.py"
+}
+
+Write-Host "=== Deployed to both locations ==="
+Write-Host "1) C:\IsoLens\agent\start_agent.bat"
+Write-Host "2) $env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\isolens_agent.bat"
