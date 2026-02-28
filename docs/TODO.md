@@ -1,0 +1,1 @@
+- check why no network activities are being detected

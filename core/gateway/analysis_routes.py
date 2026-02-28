@@ -9,11 +9,14 @@ Endpoints
   GET  /api/analysis/agent/status     Proxy to agent GET /api/status.
   GET  /api/analysis/agent/collectors Proxy to agent GET /api/collectors.
   GET  /api/analysis/agent/artifacts  Proxy to agent GET /api/artifacts.
+  GET  /api/analysis/report/{analysis_id}/screenshots  List screenshots.
+  GET  /api/analysis/report/{analysis_id}/file/{filename} Serve a report file.
 """
 
 from __future__ import annotations
 
 import asyncio
+import glob
 import logging
 import os
 import shutil
@@ -21,10 +24,12 @@ import tempfile
 from typing import Optional
 
 from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
 from core.controller.sandbox_orchestrator import (
     AgentConfig,
     SandboxOrchestrator,
+    DEFAULT_REPORTS_DIR,
 )
 from core.gateway.api_models import StandardResponse
 
@@ -174,3 +179,53 @@ def agent_artifacts() -> StandardResponse:
         return _ok(resp.get("data", resp))
     except Exception as exc:
         return _error("Agent unreachable", details=str(exc))
+
+
+# ─── Report / screenshot serving ─────────────────────────────────────────
+
+
+@router.get("/report/{analysis_id}/screenshots")
+def list_screenshots(analysis_id: str):
+    """List screenshot files for an analysis."""
+    report_dir = os.path.join(DEFAULT_REPORTS_DIR, analysis_id, "screenshots")
+    if not os.path.isdir(report_dir):
+        return _ok({"screenshots": []})
+    files = sorted(
+        f for f in os.listdir(report_dir)
+        if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    )
+    return _ok({"screenshots": files, "analysis_id": analysis_id})
+
+
+@router.get("/report/{analysis_id}/file/{filename:path}")
+def serve_report_file(analysis_id: str, filename: str):
+    """Serve a file from the analysis report directory (screenshots, logs, etc)."""
+    # Security: prevent path traversal
+    safe_id = os.path.basename(analysis_id)
+    safe_name = os.path.normpath(filename)
+    if safe_name.startswith("..") or os.path.isabs(safe_name):
+        return JSONResponse(status_code=400, content={"error": "Invalid path"})
+
+    file_path = os.path.join(DEFAULT_REPORTS_DIR, safe_id, safe_name)
+    if not os.path.isfile(file_path):
+        return JSONResponse(status_code=404, content={"error": "File not found"})
+
+    return FileResponse(file_path)
+
+
+@router.get("/reports/list", response_model=StandardResponse)
+def list_reports():
+    """List all analysis reports that have manifests."""
+    reports = []
+    if os.path.isdir(DEFAULT_REPORTS_DIR):
+        for entry in sorted(os.listdir(DEFAULT_REPORTS_DIR), reverse=True):
+            manifest = os.path.join(DEFAULT_REPORTS_DIR, entry, "analysis_manifest.json")
+            if os.path.isfile(manifest):
+                import json
+                try:
+                    with open(manifest, "r") as f:
+                        data = json.load(f)
+                    reports.append(data)
+                except Exception:
+                    pass
+    return _ok({"reports": reports})

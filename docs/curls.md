@@ -296,3 +296,31 @@ Gracefully shut down the agent service.
 ```bash
 curl -s -X POST http://192.168.56.105:9090/api/shutdown
 ```
+
+---
+
+# Gateway Report / Screenshot Endpoints
+
+## List Screenshots
+
+List screenshot files for a given analysis.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/screenshots
+```
+
+## Serve Report File
+
+Serve a file from the analysis report directory (e.g. a screenshot PNG).
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/file/screenshots/screenshot_001.png --output screenshot.png
+```
+
+## List All Reports
+
+List all analysis reports with saved manifests.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/reports/list
+```
