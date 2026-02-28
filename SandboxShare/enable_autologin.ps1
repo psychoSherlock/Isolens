@@ -2,7 +2,7 @@
 # Configures Windows 7 to log in automatically at boot
 
 $username = "admin"
-$password = "YOUR_PASSWORD_HERE" # <--- CHANGE THIS
+$password = "admin@2005" # <--- CHANGE THIS
 
 Write-Host "[*] Configuring Registry for Auto-Login..."
 

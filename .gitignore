@@ -35,3 +35,7 @@ yarn-error.log*
 *.swo
 *~
 screenshots/
+
+# SandboxShare large artifacts
+SandboxShare/*.zip
+SandboxShare/System Volume Information/
