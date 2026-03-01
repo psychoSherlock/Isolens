@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   IoStopCircle,
-  IoPause,
   IoRefresh,
   IoCheckmarkCircle,
   IoCloseCircle,
   IoPlayOutline,
-  IoTimeOutline,
   IoAlertCircleOutline,
   IoTrashOutline,
+  IoDesktopOutline,
+  IoExpandOutline,
+  IoContractOutline,
 } from "react-icons/io5";
 import {
   listVMs,
@@ -19,11 +20,11 @@ import {
   getVMIP,
   startVM,
   poweroffVM,
-  restoreCurrentSnapshot,
   getAgentStatus,
   checkVM,
   cleanupAgent,
   getAnalysisStatus,
+  vmScreenURL,
   type VMEntry,
   type VMInfo,
   type AgentStatus,
@@ -53,6 +54,12 @@ export default function SandboxPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Live preview
+  const [previewEnabled, setPreviewEnabled] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState<string>("");
+  const previewTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -135,11 +142,37 @@ export default function SandboxPage() {
     }
   }, [selectedVM]);
 
+  const isRunning = vmState === "running";
+
   useEffect(() => {
     fetchAll();
     const interval = setInterval(fetchAll, 10000);
     return () => clearInterval(interval);
   }, [fetchAll]);
+
+  // Live preview polling
+  useEffect(() => {
+    if (previewEnabled && isRunning) {
+      // Initial frame
+      setPreviewSrc(vmScreenURL(selectedVM));
+      previewTimerRef.current = setInterval(() => {
+        setPreviewSrc(vmScreenURL(selectedVM));
+      }, 2000);
+    } else {
+      if (previewTimerRef.current) {
+        clearInterval(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+      if (!isRunning) setPreviewSrc("");
+    }
+    return () => {
+      if (previewTimerRef.current) {
+        clearInterval(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewEnabled, isRunning, selectedVM]);
 
   const showSuccess = (msg: string) => {
     setSuccessMsg(msg);
@@ -181,23 +214,6 @@ export default function SandboxPage() {
     setActionLoading(null);
   };
 
-  const handleRestore = async () => {
-    setActionLoading("restore");
-    setError(null);
-    try {
-      const resp = await restoreCurrentSnapshot(selectedVM);
-      if (resp.status === "ok") {
-        showSuccess("Snapshot restored");
-        window.setTimeout(fetchAll, 2000);
-      } else {
-        setError(resp.error?.message || "Failed to restore snapshot");
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
-    }
-    setActionLoading(null);
-  };
-
   const handleCheckVM = async () => {
     setActionLoading("check");
     setError(null);
@@ -230,8 +246,6 @@ export default function SandboxPage() {
     setActionLoading(null);
   };
 
-  const isRunning = vmState === "running";
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -262,100 +276,224 @@ export default function SandboxPage() {
         </div>
       )}
 
-      {/* ── Status Banner ────────────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center gap-4 mb-5">
-          <div className="relative w-14 h-14 flex items-center justify-center">
-            <div className="absolute inset-0 rounded-full border-4 border-gray-200" />
-            {isRunning ? (
-              <>
-                <div className="absolute inset-0 rounded-full border-4 border-t-green-500 animate-spin" />
-                <div className="w-8 h-8 bg-green-500 rounded-full" />
-              </>
+      {/* ── Top: Live Preview (left) + Status (right) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Live VM Preview — takes 2/3 width */}
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <IoDesktopOutline className="w-5 h-5 text-violet-500" />
+              <h3 className="text-base font-semibold text-gray-900">
+                Live VM Preview
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {previewEnabled && isRunning && (
+                <button
+                  onClick={() => setPreviewExpanded(true)}
+                  className="p-1.5 text-gray-400 hover:text-violet-600 transition-colors"
+                  title="Fullscreen"
+                >
+                  <IoExpandOutline className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                onClick={() => setPreviewEnabled(!previewEnabled)}
+                disabled={!isRunning}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                  previewEnabled && isRunning
+                    ? "bg-violet-100 text-violet-700 hover:bg-violet-200"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                }`}
+              >
+                {previewEnabled && isRunning ? "Stop" : "Start"} Preview
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 flex items-center justify-center min-h-0">
+            {!isRunning ? (
+              <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                <IoDesktopOutline className="w-12 h-12 mb-3 opacity-40" />
+                <p className="text-sm">VM is not running</p>
+                <p className="text-xs mt-1">
+                  Start the VM to enable live preview
+                </p>
+              </div>
+            ) : !previewEnabled ? (
+              <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                <IoDesktopOutline className="w-12 h-12 mb-3 opacity-40" />
+                <p className="text-sm">Preview paused</p>
+                <p className="text-xs mt-1">
+                  Click &quot;Start Preview&quot; to see the VM display
+                </p>
+              </div>
+            ) : previewSrc ? (
+              <div className="relative w-full rounded-lg bg-black overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewSrc}
+                  alt="Live VM Screenshot"
+                  className="w-full h-auto object-contain"
+                  onError={() => {}}
+                />
+                <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/60 text-green-400 text-xs font-mono px-2 py-1 rounded">
+                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                  LIVE
+                </div>
+              </div>
             ) : (
-              <div className="w-8 h-8 bg-gray-400 rounded-full" />
+              <div className="flex items-center justify-center py-10">
+                <div className="animate-spin w-6 h-6 border-2 border-violet-200 border-t-violet-500 rounded-full" />
+              </div>
             )}
           </div>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">
-              Sandbox Status:{" "}
-              <span
-                className={`font-bold ${isRunning ? "text-green-600" : "text-gray-500"}`}
-              >
-                {isRunning ? "Running" : "Stopped"}
-              </span>
-            </h2>
-            <p className="text-sm text-gray-500">
-              VM: {selectedVM}
-              {vmIP && ` — ${vmIP}`}
-            </p>
-          </div>
+          <p className="text-[11px] text-gray-400 mt-2 text-center">
+            Refreshes every 2s via VBoxManage
+          </p>
         </div>
 
-        {/* VM selector */}
-        {vms.length > 1 && (
-          <div className="mb-4">
-            <select
-              value={selectedVM}
-              onChange={(e) => setSelectedVM(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300"
-            >
-              {vms.map((vm) => (
-                <option key={vm.uuid} value={vm.name}>
-                  {vm.name}
-                </option>
-              ))}
-            </select>
+        {/* Sandbox Status — compact right column (1/3 width) */}
+        <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col">
+          {/* Status indicator */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="relative w-10 h-10 flex items-center justify-center shrink-0">
+              <div className="absolute inset-0 rounded-full border-[3px] border-gray-200" />
+              {isRunning ? (
+                <>
+                  <div className="absolute inset-0 rounded-full border-[3px] border-t-green-500 animate-spin" />
+                  <div className="w-5 h-5 bg-green-500 rounded-full" />
+                </>
+              ) : (
+                <div className="w-5 h-5 bg-gray-400 rounded-full" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900">
+                Sandbox:{" "}
+                <span
+                  className={isRunning ? "text-green-600" : "text-gray-500"}
+                >
+                  {isRunning ? "Running" : "Stopped"}
+                </span>
+              </p>
+              <p className="text-xs text-gray-500 truncate">
+                {selectedVM}
+                {vmIP && ` · ${vmIP}`}
+              </p>
+            </div>
           </div>
-        )}
 
-        {/* Control buttons */}
-        <div className="flex flex-wrap gap-3">
-          {isRunning ? (
-            <button
-              onClick={handleStop}
-              disabled={actionLoading === "stop"}
-              className="inline-flex items-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-            >
-              <IoStopCircle className="w-4 h-4" />
-              {actionLoading === "stop" ? "Stopping..." : "Power Off"}
-            </button>
-          ) : (
-            <button
-              onClick={handleStart}
-              disabled={actionLoading === "start"}
-              className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-            >
-              <IoPlayOutline className="w-4 h-4" />
-              {actionLoading === "start" ? "Starting..." : "Start VM"}
-            </button>
+          {/* VM selector */}
+          {vms.length > 1 && (
+            <div className="mb-3">
+              <select
+                value={selectedVM}
+                onChange={(e) => setSelectedVM(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300"
+              >
+                {vms.map((vm) => (
+                  <option key={vm.uuid} value={vm.name}>
+                    {vm.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
-          <button
-            onClick={handleRestore}
-            disabled={!!actionLoading}
-            className="inline-flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-          >
-            <IoRefresh className="w-4 h-4" />
-            {actionLoading === "restore" ? "Restoring..." : "Restore Snapshot"}
-          </button>
-          <button
-            onClick={handleCheckVM}
-            disabled={!!actionLoading}
-            className="inline-flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-          >
-            <IoCheckmarkCircle className="w-4 h-4" />
-            {actionLoading === "check" ? "Checking..." : "Check Agent"}
-          </button>
-          <button
-            onClick={handleCleanup}
-            disabled={!!actionLoading}
-            className="inline-flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-          >
-            <IoTrashOutline className="w-4 h-4" />
-            {actionLoading === "cleanup" ? "Cleaning..." : "Cleanup Artifacts"}
-          </button>
+
+          {/* Controls */}
+          <div className="flex flex-col gap-2">
+            {isRunning ? (
+              <button
+                onClick={handleStop}
+                disabled={actionLoading === "stop"}
+                className="inline-flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors w-full"
+              >
+                <IoStopCircle className="w-4 h-4" />
+                {actionLoading === "stop" ? "Stopping..." : "Power Off"}
+              </button>
+            ) : (
+              <button
+                onClick={handleStart}
+                disabled={actionLoading === "start"}
+                className="inline-flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors w-full"
+              >
+                <IoPlayOutline className="w-4 h-4" />
+                {actionLoading === "start" ? "Starting..." : "Start VM"}
+              </button>
+            )}
+            <button
+              onClick={handleCheckVM}
+              disabled={!!actionLoading}
+              className="inline-flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors w-full"
+            >
+              <IoCheckmarkCircle className="w-4 h-4" />
+              {actionLoading === "check" ? "Checking..." : "Check Agent"}
+            </button>
+            <button
+              onClick={handleCleanup}
+              disabled={!!actionLoading}
+              className="inline-flex items-center justify-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors w-full"
+            >
+              <IoTrashOutline className="w-4 h-4" />
+              {actionLoading === "cleanup" ? "Cleaning..." : "Cleanup"}
+            </button>
+          </div>
+
+          {/* Agent quick-status */}
+          <div className="mt-auto pt-4 border-t border-gray-100">
+            <div className="flex items-center gap-2 text-xs">
+              {agentReachable ? (
+                <>
+                  <IoCheckmarkCircle className="w-4 h-4 text-green-500 shrink-0" />
+                  <span className="text-green-600 font-medium">
+                    Agent Connected
+                  </span>
+                </>
+              ) : (
+                <>
+                  <IoCloseCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span className="text-red-500 font-medium">
+                    Agent Unreachable
+                  </span>
+                </>
+              )}
+            </div>
+            {agentStatus && (
+              <div className="text-[11px] text-gray-400 mt-1 ml-6 space-y-0.5">
+                <p>State: {agentStatus.state}</p>
+                {agentStatus.version && <p>v{agentStatus.version}</p>}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* ── Fullscreen overlay ───────────────────── */}
+      {previewExpanded && previewSrc && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-3">
+            <div className="flex items-center gap-1.5 bg-black/60 text-green-400 text-xs font-mono px-2 py-1 rounded">
+              <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+              LIVE
+            </div>
+            <button
+              onClick={() => setPreviewExpanded(false)}
+              className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
+              title="Exit Fullscreen"
+            >
+              <IoContractOutline className="w-5 h-5" />
+            </button>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewSrc}
+            alt="Live VM Screenshot — Fullscreen"
+            className="max-w-full max-h-full object-contain"
+            onError={() => {}}
+          />
+        </div>
+      )}
 
       {/* ── Two-column cards ─────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -405,133 +543,244 @@ export default function SandboxPage() {
         </div>
 
         {/* Agent + Shared Folder */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">
-              Agent Connection Status
-            </h3>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">
+            Agent &amp; Shared Folder
+          </h3>
+          <div className="space-y-3">
             <div className="flex items-center gap-2">
               {agentReachable ? (
                 <>
-                  <IoCheckmarkCircle className="w-6 h-6 text-green-500" />
-                  <span className="text-base font-medium text-green-600">
-                    Connected
+                  <IoCheckmarkCircle className="w-5 h-5 text-green-500" />
+                  <span className="text-sm font-medium text-green-600">
+                    Agent Connected
                   </span>
                 </>
               ) : (
                 <>
-                  <IoCloseCircle className="w-6 h-6 text-red-400" />
-                  <span className="text-base font-medium text-red-500">
-                    Unreachable
+                  <IoCloseCircle className="w-5 h-5 text-red-400" />
+                  <span className="text-sm font-medium text-red-500">
+                    Agent Unreachable
                   </span>
                 </>
               )}
             </div>
             {agentStatus && (
-              <div className="mt-2 text-xs text-gray-500 space-y-1 ml-8">
+              <div className="text-xs text-gray-500 space-y-0.5 ml-7">
                 <p>State: {agentStatus.state}</p>
                 {agentStatus.version && <p>Version: {agentStatus.version}</p>}
                 {agentStatus.hostname && <p>Host: {agentStatus.hostname}</p>}
               </div>
             )}
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">
-              Shared Folder Status
-            </h3>
-            <div className="flex items-center gap-2">
-              <IoCheckmarkCircle className="w-6 h-6 text-green-500" />
-              <span className="text-base font-medium text-gray-800">
+            <div className="border-t border-gray-100 pt-3 flex items-center gap-2">
+              <IoCheckmarkCircle className="w-5 h-5 text-green-500" />
+              <span className="text-sm font-medium text-gray-800">
                 SandboxShare/
               </span>
+              <span className="text-xs text-gray-400 ml-1">Mounted (R/W)</span>
             </div>
-            <p className="text-sm text-gray-400 mt-1 ml-8">
-              Mounted (Read/Write)
-            </p>
           </div>
         </div>
       </div>
 
       {/* ── VM Info ──────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Sandbox VM Info
-          </h3>
-          {vmInfo ? (
-            <dl className="space-y-3 text-sm">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Sandbox VM Info
+        </h3>
+        {vmInfo ? (
+          <dl className="space-y-2.5 text-sm">
+            {/* Identity */}
+            <div className="flex justify-between">
+              <dt className="text-gray-500 font-medium">VM Name:</dt>
+              <dd className="text-gray-800 font-mono">
+                {vmInfo.name || selectedVM}
+              </dd>
+            </div>
+            {vmInfo.os && (
               <div className="flex justify-between">
-                <dt className="text-gray-500 font-medium">VM Name:</dt>
-                <dd className="text-gray-800">{vmInfo.name || selectedVM}</dd>
+                <dt className="text-gray-500 font-medium">OS Type:</dt>
+                <dd className="text-gray-800">{vmInfo.os as string}</dd>
               </div>
-              {vmInfo.ostype && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500 font-medium">OS:</dt>
-                  <dd className="text-gray-800">{vmInfo.ostype}</dd>
-                </div>
-              )}
-              {vmInfo.memory && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500 font-medium">RAM:</dt>
-                  <dd className="text-gray-800">{vmInfo.memory} MB</dd>
-                </div>
-              )}
-              {vmInfo.VMState && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500 font-medium">State:</dt>
-                  <dd className="text-gray-800">{vmInfo.VMState}</dd>
-                </div>
-              )}
-              {vmIP && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500 font-medium">Network:</dt>
-                  <dd className="text-gray-800 text-right">
-                    Host Only Adapter
-                    <br />
-                    {vmIP}
+            )}
+            {vmInfo.uuid && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">UUID:</dt>
+                <dd className="text-gray-800 font-mono text-xs mt-0.5">
+                  {(vmInfo.uuid as string).slice(0, 18)}…
+                </dd>
+              </div>
+            )}
+            {vmInfo.state && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">State:</dt>
+                <dd
+                  className={`font-medium ${vmInfo.state === "running" ? "text-green-600" : "text-gray-600"}`}
+                >
+                  {vmInfo.state as string}
+                </dd>
+              </div>
+            )}
+
+            {/* Divider */}
+            <div className="border-t border-gray-100 my-1" />
+
+            {/* Resources */}
+            {vmInfo.memory_mb && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">RAM:</dt>
+                <dd className="text-gray-800">
+                  {vmInfo.memory_mb as number} MB
+                </dd>
+              </div>
+            )}
+            {vmInfo.cpus && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">CPUs:</dt>
+                <dd className="text-gray-800">{vmInfo.cpus as number}</dd>
+              </div>
+            )}
+            {vmInfo.vram_mb && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">Video RAM:</dt>
+                <dd className="text-gray-800">{vmInfo.vram_mb as number} MB</dd>
+              </div>
+            )}
+
+            {/* Hardware */}
+            {vmInfo.chipset && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">Chipset:</dt>
+                <dd className="text-gray-800 uppercase">
+                  {vmInfo.chipset as string}
+                </dd>
+              </div>
+            )}
+            {vmInfo.firmware && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">Firmware:</dt>
+                <dd className="text-gray-800 uppercase">
+                  {vmInfo.firmware as string}
+                </dd>
+              </div>
+            )}
+            {vmInfo.graphics_controller && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">Graphics:</dt>
+                <dd className="text-gray-800">
+                  {vmInfo.graphics_controller as string}
+                </dd>
+              </div>
+            )}
+
+            {/* Divider */}
+            <div className="border-t border-gray-100 my-1" />
+
+            {/* VRDE */}
+            {vmInfo.vrde !== undefined && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">Remote Display:</dt>
+                <dd
+                  className={`font-medium ${vmInfo.vrde ? "text-green-600" : "text-gray-500"}`}
+                >
+                  {vmInfo.vrde
+                    ? `On (port ${vmInfo.vrde_port || "N/A"})`
+                    : "Off"}
+                </dd>
+              </div>
+            )}
+
+            {/* Snapshot */}
+            {vmInfo.snapshot && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">Snapshot:</dt>
+                <dd className="text-gray-800">{vmInfo.snapshot as string}</dd>
+              </div>
+            )}
+
+            {/* Network */}
+            {vmIP && (
+              <div className="flex justify-between">
+                <dt className="text-gray-500 font-medium">IP Address:</dt>
+                <dd className="text-gray-800 font-mono">{vmIP}</dd>
+              </div>
+            )}
+            {Array.isArray(vmInfo.network) &&
+              (
+                vmInfo.network as Array<{
+                  slot: number;
+                  type: string;
+                  attachment: string;
+                }>
+              ).length > 0 && (
+                <div>
+                  <dt className="text-gray-500 font-medium mb-1.5">
+                    Network Adapters:
+                  </dt>
+                  <dd className="space-y-1">
+                    {(
+                      vmInfo.network as Array<{
+                        slot: number;
+                        type: string;
+                        mac: string;
+                        attachment: string;
+                      }>
+                    ).map((nic, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 text-xs bg-gray-50 rounded-md px-2.5 py-1.5"
+                      >
+                        <span className="text-gray-400 font-mono">
+                          NIC {nic.slot}
+                        </span>
+                        <span className="text-gray-700 font-medium">
+                          {nic.type}
+                        </span>
+                        {nic.attachment && (
+                          <span className="text-gray-500">
+                            → {nic.attachment}
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </dd>
                 </div>
               )}
-            </dl>
-          ) : (
-            <p className="text-sm text-gray-500">
-              {loading ? "Loading..." : "VM info unavailable"}
-            </p>
-          )}
-        </div>
 
-        {/* Pause/Resume — Coming Soon */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 opacity-60">
-          <div className="flex items-center gap-3 mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Advanced VM Controls
-            </h3>
-            <span className="text-xs font-normal bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-              Coming Soon
-            </span>
-          </div>
-          <p className="text-sm text-gray-500 mb-3">
-            Pause/Resume, Save State, Named Snapshots, and real-time activity
-            log will be available here.
+            {/* Shared Folders */}
+            {Array.isArray(vmInfo.shared_folders) &&
+              (vmInfo.shared_folders as Array<{ name: string; path: string }>)
+                .length > 0 && (
+                <div>
+                  <dt className="text-gray-500 font-medium mb-1.5">
+                    Shared Folders:
+                  </dt>
+                  <dd className="space-y-1">
+                    {(
+                      vmInfo.shared_folders as Array<{
+                        name: string;
+                        path: string;
+                      }>
+                    ).map((sf, i) => (
+                      <div
+                        key={i}
+                        className="text-xs bg-gray-50 rounded-md px-2.5 py-1.5"
+                      >
+                        <span className="text-gray-700 font-medium">
+                          {sf.name}
+                        </span>
+                        <span className="text-gray-400 ml-2">→ {sf.path}</span>
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+              )}
+          </dl>
+        ) : (
+          <p className="text-sm text-gray-500">
+            {loading ? "Loading..." : "VM info unavailable"}
           </p>
-          <div className="flex gap-3">
-            <button
-              disabled
-              className="inline-flex items-center gap-2 bg-gray-200 text-gray-400 text-sm font-medium px-5 py-2.5 rounded-lg cursor-not-allowed"
-            >
-              <IoPause className="w-4 h-4" />
-              Pause
-            </button>
-            <button
-              disabled
-              className="inline-flex items-center gap-2 bg-gray-200 text-gray-400 text-sm font-medium px-5 py-2.5 rounded-lg cursor-not-allowed"
-            >
-              <IoTimeOutline className="w-4 h-4" />
-              Save State
-            </button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

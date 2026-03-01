@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Optional
 
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from core.controller import VBoxManageClient
 from core.gateway.api_models import (
@@ -251,6 +253,51 @@ def snapshot_restore_current(payload: VMControlRequest) -> StandardResponse:
         client = _client(dry_run=payload.dry_run, raise_on_error=payload.raise_on_error)
         result = client.snapshot_restore_current(payload.vm)
         return _ok(_action_response(result, dry_run=payload.dry_run))
+    except RuntimeError as exc:
+        return JSONResponse(
+            status_code=500,
+            content=_error("VBoxManage failed", str(exc)).model_dump(),
+        )
+
+
+# ─── Live VM screenshot ─────────────────────────────────────────────────
+
+# Reusable temp file for the live screenshot (avoids creating many temp files)
+_SCREEN_TMP = os.path.join(tempfile.gettempdir(), "isolens_live_screen.png")
+
+
+@router.get("/screen")
+def vm_live_screenshot(vm: str = "WindowsSandbox"):
+    """Capture and serve a live PNG screenshot of the VM display.
+
+    Returns the raw PNG image with proper content-type headers and
+    cache-control to prevent stale frames.
+    """
+    try:
+        client = _client(dry_run=False, raise_on_error=True)
+        result = client.screenshot_vm(vm, _SCREEN_TMP)
+        if result.returncode != 0:
+            return JSONResponse(
+                status_code=500,
+                content=_error(
+                    "Screenshot failed",
+                    result.stderr.strip() or result.stdout.strip(),
+                ).model_dump(),
+            )
+        if not os.path.isfile(_SCREEN_TMP):
+            return JSONResponse(
+                status_code=500,
+                content=_error("Screenshot file not created").model_dump(),
+            )
+        return FileResponse(
+            _SCREEN_TMP,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     except RuntimeError as exc:
         return JSONResponse(
             status_code=500,

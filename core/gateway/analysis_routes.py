@@ -16,7 +16,10 @@ Endpoints
 from __future__ import annotations
 
 import asyncio
+import csv as csv_mod
 import glob
+import io
+import json
 import logging
 import os
 import shutil
@@ -208,6 +211,9 @@ def serve_report_file(analysis_id: str, filename: str):
 
     file_path = os.path.join(DEFAULT_REPORTS_DIR, safe_id, safe_name)
     if not os.path.isfile(file_path):
+        # Fallback: check inside artifacts/ subdirectory
+        file_path = os.path.join(DEFAULT_REPORTS_DIR, safe_id, "artifacts", safe_name)
+    if not os.path.isfile(file_path):
         return JSONResponse(status_code=404, content={"error": "File not found"})
 
     return FileResponse(file_path)
@@ -221,7 +227,6 @@ def list_reports():
         for entry in sorted(os.listdir(DEFAULT_REPORTS_DIR), reverse=True):
             manifest = os.path.join(DEFAULT_REPORTS_DIR, entry, "analysis_manifest.json")
             if os.path.isfile(manifest):
-                import json
                 try:
                     with open(manifest, "r") as f:
                         data = json.load(f)
@@ -231,6 +236,52 @@ def list_reports():
     return _ok({"reports": reports})
 
 
+@router.delete("/reports/clear", response_model=StandardResponse)
+def clear_all_reports():
+    """Delete all analysis reports and their associated data.
+
+    Removes all subdirectories in the reports directory and any result
+    zip files from SandboxShare/.
+    """
+    deleted = 0
+    errors = []
+
+    # Remove report directories
+    if os.path.isdir(DEFAULT_REPORTS_DIR):
+        for entry in os.listdir(DEFAULT_REPORTS_DIR):
+            entry_path = os.path.join(DEFAULT_REPORTS_DIR, entry)
+            if os.path.isdir(entry_path):
+                try:
+                    shutil.rmtree(entry_path)
+                    deleted += 1
+                except Exception as exc:
+                    errors.append(f"{entry}: {exc}")
+
+    # Remove result zips from SandboxShare
+    sandbox_share = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "SandboxShare",
+    )
+    if os.path.isdir(sandbox_share):
+        for f in os.listdir(sandbox_share):
+            if f.startswith("result_") and f.endswith(".zip"):
+                try:
+                    os.remove(os.path.join(sandbox_share, f))
+                except Exception:
+                    pass
+
+    # Reset the orchestrator's current analysis reference
+    orch = _get_orchestrator()
+    orch.current_analysis = None
+
+    if errors:
+        return _error(
+            f"Cleared {deleted} reports with {len(errors)} errors",
+            details="; ".join(errors),
+        )
+    return _ok({"deleted": deleted, "message": f"Cleared {deleted} report(s)"})
+
+
 @router.get("/report/{analysis_id}/data")
 def get_report_data(analysis_id: str):
     """Return all parsed collector data for an analysis in one response.
@@ -238,9 +289,6 @@ def get_report_data(analysis_id: str):
     Reads JSON summaries, text files, and CSV from the report directory
     to assemble a comprehensive data payload for the frontend.
     """
-    import csv as csv_mod
-    import io
-
     safe_id = os.path.basename(analysis_id)
     report_dir = os.path.join(DEFAULT_REPORTS_DIR, safe_id)
     if not os.path.isdir(report_dir):

@@ -20,9 +20,30 @@ export interface VMEntry {
 
 export interface VMInfo {
   name?: string;
-  ostype?: string;
-  memory?: string;
-  VMState?: string;
+  uuid?: string;
+  os?: string;
+  state?: string;
+  state_changed?: string;
+  memory_mb?: number;
+  cpus?: number;
+  vram_mb?: number;
+  chipset?: string;
+  firmware?: string;
+  graphics_controller?: string;
+  accelerate_3d?: boolean;
+  vrde?: boolean;
+  vrde_port?: number;
+  vrde_auth_type?: string;
+  snapshot?: string;
+  snapshot_uuid?: string;
+  network?: {
+    slot: number;
+    type: string;
+    mac: string;
+    cable: boolean;
+    attachment: string;
+  }[];
+  shared_folders?: { name: string; path: string }[];
   [key: string]: unknown;
 }
 
@@ -101,6 +122,14 @@ export async function getVMIP(vm: string) {
   return get<{ vm: string; interfaces: Record<string, string>[] }>(
     `/api/vms/ip?vm=${encodeURIComponent(vm)}`,
   );
+}
+
+/**
+ * Returns the URL for a live VM screenshot PNG.
+ * Append a timestamp query param to bust browser cache.
+ */
+export function vmScreenURL(vm = "WindowsSandbox"): string {
+  return `/api/vms/screen?vm=${encodeURIComponent(vm)}&t=${Date.now()}`;
 }
 
 export async function getVMInfo(vm: string, machinereadable = true) {
@@ -215,6 +244,13 @@ export function screenshotURL(analysisId: string, filename: string): string {
 
 export async function listReports() {
   return get<{ reports: AnalysisResult[] }>("/api/analysis/reports/list");
+}
+
+export async function clearAllReports() {
+  const res = await fetch("/api/analysis/reports/clear", { method: "DELETE" });
+  return res.json() as Promise<
+    ApiResponse<{ deleted: number; message: string }>
+  >;
 }
 
 // ─── Report Data (detailed collector output) ─────────────────────────────

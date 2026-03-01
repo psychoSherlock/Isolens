@@ -138,6 +138,14 @@ class VBoxManageClient:
             "/VirtualBox/GuestInfo/Net/*",
         ])
 
+    def screenshot_vm(self, vm: str, output_path: str) -> CommandResult:
+        """Capture a live PNG screenshot of the VM display.
+
+        Uses `VBoxManage controlvm <vm> screenshotpng <path>`.
+        The VM must be in the 'running' state.
+        """
+        return self._run(["controlvm", vm, "screenshotpng", output_path])
+
 
 def _print_result(result: CommandResult, *, as_json: bool) -> None:
     if as_json:

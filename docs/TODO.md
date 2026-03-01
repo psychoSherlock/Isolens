@@ -1,1 +1,1 @@
-- check why no network activities are being detected
+- Implement the ai part with copilot if possibl

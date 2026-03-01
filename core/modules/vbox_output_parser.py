@@ -94,6 +94,21 @@ def parse_showvminfo(stdout: str) -> dict[str, Any]:
     # --- Resources ---
     info["memory_mb"] = raw.get("memory")
     info["cpus"] = raw.get("cpus")
+    info["vram_mb"] = raw.get("vram")
+
+    # --- Hardware ---
+    info["chipset"] = raw.get("chipset")
+    info["firmware"] = raw.get("firmware")
+    info["graphics_controller"] = raw.get("graphicscontroller")
+    info["accelerate_3d"] = raw.get("accelerate3d")
+
+    # --- VRDE (Remote Display) ---
+    info["vrde"] = raw.get("vrde")
+    info["vrde_port"] = raw.get("vrdeport")
+    info["vrde_auth_type"] = raw.get("vrdeauthtype")
+
+    # --- Audio ---
+    info["audio_enabled"] = raw.get("audioEnabled" if "audioEnabled" in raw else "audio")
 
     # --- Network (enabled NICs only) ---
     nic_data: dict[str, dict[str, Any]] = {}

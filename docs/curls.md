@@ -325,6 +325,24 @@ List all analysis reports with saved manifests.
 curl -s http://127.0.0.1:6969/api/analysis/reports/list
 ```
 
+## Clear All Reports
+
+Delete all analysis reports, artifacts, and associated data. Also removes
+result zip files from SandboxShare.
+
+```bash
+curl -s -X DELETE http://127.0.0.1:6969/api/analysis/reports/clear
+```
+
+## Live VM Screenshot
+
+Capture and serve a live PNG screenshot of the VM display. Returns the raw
+PNG image. The VM must be running.
+
+```bash
+curl -s "http://127.0.0.1:6969/api/vms/screen?vm=WindowsSandbox" --output live_screen.png
+```
+
 ## Get Full Report Data
 
 Retrieve all parsed collector data for a single analysis (Sysmon, Procmon, Network, Handle, Tcpvcon, screenshots) in one response.
