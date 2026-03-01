@@ -22,32 +22,32 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-end px-6 gap-4">
+    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-end px-6 gap-4 z-10">
       {/* Gateway status indicator */}
-      <div className="flex items-center gap-2 mr-auto ml-2">
+      <div className="flex items-center gap-2 mr-auto">
         <span
-          className={`w-2 h-2 rounded-full ${
+          className={`w-2 h-2 rounded-full shadow-sm ${
             gatewayOk === null
-              ? "bg-gray-300"
+              ? "bg-slate-300"
               : gatewayOk
-                ? "bg-green-500"
-                : "bg-red-400"
+                ? "bg-emerald-500"
+                : "bg-red-500"
           }`}
         />
-        <span className="text-xs text-gray-500">
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
           Gateway{" "}
-          {gatewayOk === null ? "..." : gatewayOk ? "Connected" : "Offline"}
+          {gatewayOk === null ? "..." : gatewayOk ? "Online" : "Offline"}
         </span>
       </div>
 
       {/* Notification Bell */}
-      <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-        <IoNotificationsOutline className="w-5 h-5 text-gray-600" />
+      <button className="p-2 border border-slate-200 hover:bg-slate-50 rounded-md transition-colors text-slate-500 hover:text-slate-800">
+        <IoNotificationsOutline className="w-4 h-4" />
       </button>
 
       {/* User Avatar */}
-      <div className="w-9 h-9 rounded-full bg-violet-200 flex items-center justify-center overflow-hidden">
-        <span className="text-violet-700 font-medium text-sm">U</span>
+      <div className="w-8 h-8 rounded border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden cursor-pointer hover:bg-slate-100 transition-colors">
+        <span className="text-slate-700 font-bold text-xs uppercase">Admin</span>
       </div>
     </header>
   );

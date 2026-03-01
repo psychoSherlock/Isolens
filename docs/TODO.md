@@ -1,1 +1,2 @@
-- Implement the ai part with copilot if possibl
+- Wrap in electron app
+- Test all features again

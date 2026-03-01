@@ -158,6 +158,14 @@ export async function poweroffVM(vm: string) {
   });
 }
 
+export async function resetVM(vm: string) {
+  return post<{ success: boolean; message: string }>("/api/vms/reset", {
+    vm,
+    dry_run: false,
+    raise_on_error: true,
+  });
+}
+
 export async function pauseVM(vm: string) {
   return post<{ success: boolean; message: string }>("/api/vms/pause", {
     vm,
@@ -446,5 +454,18 @@ export async function runAIAnalysis(
 export async function getAIReport(analysisId: string) {
   return get<AIReport>(
     `/api/analysis/report/${encodeURIComponent(analysisId)}/ai-report`,
+  );
+}
+
+export interface AIProgress {
+  status: "pending" | "running" | "complete" | "failed";
+  current_action: string;
+  completed_agents: number;
+  total_agents: number;
+}
+
+export async function getAIProgress(analysisId: string) {
+  return get<AIProgress>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/ai-progress`,
   );
 }

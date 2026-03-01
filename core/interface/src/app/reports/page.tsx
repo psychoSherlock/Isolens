@@ -40,6 +40,7 @@ import {
   IoSkullOutline,
   IoLockClosedOutline,
   IoArrowForwardOutline,
+  IoDownloadOutline,
 } from "react-icons/io5";
 import {
   getAnalysisStatus,
@@ -49,6 +50,7 @@ import {
   getReportData,
   getAIReport,
   runAIAnalysis,
+  getAIProgress,
   type AnalysisResult,
   type ReportData,
   type SysmonData,
@@ -61,7 +63,11 @@ import {
   type AIIOC,
   type AIMitreTechnique,
   type AIRecommendation,
+  type AIProgress,
 } from "@/lib/api";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
+import AIPipelineAnimation from "@/components/AIPipelineAnimation";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    COLLAPSIBLE PANEL
@@ -72,7 +78,7 @@ function Panel({
   icon,
   count,
   defaultOpen = true,
-  color = "violet",
+  color = "blue",
   children,
 }: {
   title: string;
@@ -83,38 +89,36 @@ function Panel({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const gradients: Record<string, string> = {
-    violet: "from-violet-500 to-purple-600",
-    blue: "from-blue-500 to-cyan-600",
-    amber: "from-amber-500 to-orange-600",
-    emerald: "from-emerald-500 to-teal-600",
-    rose: "from-rose-500 to-pink-600",
-    sky: "from-sky-500 to-blue-600",
-    slate: "from-slate-500 to-gray-600",
-    red: "from-red-500 to-rose-600",
+  const borders: Record<string, string> = {
+    blue: "border-blue-500 text-blue-600 bg-blue-50",
+    amber: "border-amber-500 text-amber-600 bg-amber-50",
+    emerald: "border-emerald-500 text-emerald-600 bg-emerald-50",
+    rose: "border-rose-500 text-rose-600 bg-rose-50",
+    slate: "border-slate-500 text-slate-600 bg-slate-50",
+    red: "border-red-500 text-red-600 bg-red-50",
+    sky: "border-sky-500 text-sky-600 bg-sky-50",
   };
-  const grad = gradients[color] || gradients.violet;
+  const cls = borders[color] ?? borders.blue;
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white rounded-md shadow-sm border border-slate-200 overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-gray-50/60 transition-colors group"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors group border-b border-transparent data-[open=true]:border-slate-100"
+        data-open={open}
       >
-        <div
-          className={`w-9 h-9 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-white shadow-sm`}
-        >
+        <div className={`w-8 h-8 rounded shrink-0 flex items-center justify-center border ${cls}`}>
           {icon}
         </div>
-        <span className="text-sm font-semibold text-gray-900 flex-1">
+        <span className="text-base font-bold text-slate-800 flex-1 uppercase tracking-wider">
           {title}
         </span>
         {count !== undefined && (
-          <span className="text-xs font-medium bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">
+          <span className="text-sm font-bold font-mono bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded">
             {count}
           </span>
         )}
-        <span className="text-gray-400 group-hover:text-gray-600 transition-colors">
+        <span className="text-slate-400 group-hover:text-slate-600 transition-colors ml-2">
           {open ? (
             <IoChevronUpOutline className="w-4 h-4" />
           ) : (
@@ -123,7 +127,7 @@ function Panel({
         </span>
       </button>
       {open && (
-        <div className="px-5 pb-5 border-t border-gray-50">{children}</div>
+        <div className="p-4 bg-white border-t border-slate-100">{children}</div>
       )}
     </div>
   );
@@ -135,11 +139,11 @@ function Panel({
 
 function NoData({ label, hint }: { label: string; hint?: string }) {
   return (
-    <div className="flex items-center gap-3 py-6 px-4 rounded-xl bg-gray-50 border border-dashed border-gray-200 mt-3">
-      <IoInformationCircleOutline className="w-5 h-5 text-gray-400 shrink-0" />
+    <div className="flex items-center gap-3 py-4 px-4 rounded bg-slate-50 border border-slate-200 mt-2">
+      <IoInformationCircleOutline className="w-6 h-6 text-slate-400 shrink-0" />
       <div>
-        <p className="text-sm text-gray-500 font-medium">{label}</p>
-        {hint && <p className="text-xs text-gray-400 mt-0.5">{hint}</p>}
+        <p className="text-base text-slate-700 font-semibold">{label}</p>
+        {hint && <p className="text-sm text-slate-500 mt-0.5 font-medium">{hint}</p>}
       </div>
     </div>
   );
@@ -153,7 +157,7 @@ function MiniStat({
   label,
   value,
   icon,
-  accent = "violet",
+  accent = "blue",
 }: {
   label: string;
   value: string | number;
@@ -161,27 +165,26 @@ function MiniStat({
   accent?: string;
 }) {
   const accents: Record<string, string> = {
-    violet: "bg-violet-50 text-violet-600",
-    blue: "bg-blue-50 text-blue-600",
-    amber: "bg-amber-50 text-amber-600",
-    rose: "bg-rose-50 text-rose-600",
-    emerald: "bg-emerald-50 text-emerald-600",
-    red: "bg-red-50 text-red-600",
-    sky: "bg-sky-50 text-sky-600",
+    blue: "text-blue-600",
+    amber: "text-amber-600",
+    rose: "text-rose-600",
+    emerald: "text-emerald-600",
+    red: "text-red-600",
+    sky: "text-sky-600",
+    slate: "text-slate-600",
   };
-  const cls = accents[accent] || accents.violet;
+  const cls = accents[accent] || accents.blue;
   return (
-    <div className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 px-4 py-3">
-      <div
-        className={`w-8 h-8 rounded-lg ${cls} flex items-center justify-center`}
-      >
+    <div className="flex items-center gap-3 bg-white rounded border border-slate-200 px-4 py-3 shadow-sm relative overflow-hidden">
+      <div className={`absolute left-0 top-0 bottom-0 w-1 ${cls.replace("text-", "bg-")}`} />
+      <div className={`w-8 h-8 rounded shrink-0 bg-slate-50 flex items-center justify-center border border-slate-100 ${cls}`}>
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-[11px] text-gray-500 uppercase tracking-wider font-medium truncate">
+        <p className="text-xs text-slate-500 uppercase tracking-widest font-bold truncate">
           {label}
         </p>
-        <p className="text-sm font-bold text-gray-900 truncate">{value}</p>
+        <p className="text-lg font-black text-slate-900 font-mono truncate tracking-tight">{value}</p>
       </div>
     </div>
   );
@@ -193,15 +196,17 @@ function MiniStat({
 
 function FPath({ path }: { path: string }) {
   const suspicious =
-    /\.(exe|bat|cmd|ps1|vbs|enc|bin|dat|dll)$/i.test(path) ||
-    /hidden|payload|exfil|staging|svchost_update/i.test(path);
+    /\.(exe|bat|cmd|ps1|vbs|enc|bin|dll|sys)$/i.test(path) ||
+    /hidden|payload|exfil|staging|svchost_update|temp/i.test(path);
   return (
     <span
-      className={`font-mono text-xs inline-block max-w-full truncate ${suspicious ? "text-red-600 font-semibold" : "text-gray-600"}`}
+      className={`font-mono text-xs inline-block max-w-full truncate px-1.5 py-0.5 rounded border ${
+        suspicious ? "text-red-700 bg-red-50 border-red-200 font-bold" : "text-slate-700 bg-slate-50 border-slate-200 font-medium"
+      }`}
       title={path}
     >
       {suspicious && (
-        <IoWarningOutline className="w-3 h-3 inline mr-0.5 -mt-0.5 text-red-500" />
+        <IoWarningOutline className="w-3 h-3 inline mr-1 -mt-0.5 text-red-500" />
       )}
       {path}
     </span>
@@ -225,27 +230,27 @@ function DataGrid({
   const visible = showAll ? rows : rows.slice(0, maxRows);
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-100">
+    <div className="overflow-x-auto rounded border border-slate-200 shadow-sm bg-white">
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-gray-50/80">
+          <tr className="bg-slate-50 border-b border-slate-200">
             {headers.map((h, i) => (
               <th
                 key={i}
-                className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100"
+                className="text-left px-3 py-2.5 text-xs font-extrabold text-slate-600 uppercase tracking-wider whitespace-nowrap"
               >
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-50">
+        <tbody className="divide-y divide-slate-100">
           {visible.map((row, ri) => (
-            <tr key={ri} className="hover:bg-violet-50/30 transition-colors">
+            <tr key={ri} className="hover:bg-slate-50/80 transition-colors">
               {row.map((cell, ci) => (
                 <td
                   key={ci}
-                  className="px-4 py-2.5 text-gray-700 max-w-sm truncate"
+                  className="px-3 py-2.5 text-slate-800 max-w-sm truncate text-[14px] font-medium"
                 >
                   {cell}
                 </td>
@@ -255,12 +260,12 @@ function DataGrid({
         </tbody>
       </table>
       {rows.length > maxRows && !showAll && (
-        <div className="px-4 py-2 bg-gray-50/50 border-t border-gray-100">
+        <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-center">
           <button
             onClick={() => setShowAll(true)}
-            className="text-xs text-violet-600 hover:text-violet-700 font-medium"
+            className="text-xs uppercase tracking-wider font-bold text-blue-600 hover:text-blue-700 transition-colors"
           >
-            Show all {rows.length} rows →
+            Show all {rows.length} records
           </button>
         </div>
       )}
@@ -328,17 +333,17 @@ function ScreenshotGallery({
           onClick={() =>
             scrollRef.current?.scrollBy({ left: -320, behavior: "smooth" })
           }
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/95 border border-gray-200 shadow-lg rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/95 border border-slate-200 shadow-lg rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
         >
-          <IoChevronBack className="w-4 h-4 text-gray-600" />
+          <IoChevronBack className="w-4 h-4 text-slate-600" />
         </button>
         <button
           onClick={() =>
             scrollRef.current?.scrollBy({ left: 320, behavior: "smooth" })
           }
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/95 border border-gray-200 shadow-lg rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/95 border border-slate-200 shadow-lg rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
         >
-          <IoChevronForward className="w-4 h-4 text-gray-600" />
+          <IoChevronForward className="w-4 h-4 text-slate-600" />
         </button>
 
         <div
@@ -350,7 +355,7 @@ function ScreenshotGallery({
             <button
               key={name}
               onClick={() => setLightboxIdx(idx)}
-              className="group/t relative flex-shrink-0 w-44 aspect-video rounded-xl overflow-hidden border-2 border-gray-200 hover:border-violet-400 transition-all hover:shadow-lg hover:scale-[1.02]"
+              className="group/t relative flex-shrink-0 w-44 aspect-video rounded overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all hover:shadow-lg hover:scale-[1.02]"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -411,7 +416,7 @@ function ScreenshotGallery({
             <img
               src={screenshotURL(analysisId, screenshots[lightboxIdx])}
               alt={screenshots[lightboxIdx]}
-              className="max-w-full max-h-[80vh] rounded-xl shadow-2xl"
+              className="max-w-full max-h-[80vh] rounded shadow-2xl"
             />
             <div className="absolute bottom-3 inset-x-0 text-center pointer-events-none">
               <span className="bg-black/50 text-white/70 text-xs px-3 py-1 rounded-full">
@@ -457,7 +462,7 @@ function ScreenshotGallery({
                   }}
                   className={`flex-shrink-0 w-16 h-10 rounded overflow-hidden border-2 transition-all ${
                     idx === lightboxIdx
-                      ? "border-violet-400 scale-110 shadow-lg"
+                      ? "border-blue-400 scale-110 shadow-lg"
                       : "border-white/20 opacity-60 hover:opacity-100"
                   }`}
                 >
@@ -484,13 +489,13 @@ function ScreenshotGallery({
 
 function SysmonSection({ data }: { data: SysmonData }) {
   return (
-    <div className="space-y-5 mt-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MiniStat
           label="Total Events"
           value={data.total_events?.toLocaleString() || "0"}
           icon={<IoLayersOutline className="w-4 h-4" />}
-          accent="violet"
+          accent="slate"
         />
         <MiniStat
           label="Sample Events"
@@ -508,39 +513,45 @@ function SysmonSection({ data }: { data: SysmonData }) {
           label="DLLs Loaded"
           value={data.dlls_loaded?.length || 0}
           icon={<IoHardwareChipOutline className="w-4 h-4" />}
-          accent="sky"
+          accent="blue"
         />
       </div>
 
       {data.processes_created?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoTerminalOutline className="w-3.5 h-3.5 text-violet-500" />
-            Process Creation ({data.processes_created.length})
-          </h4>
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoTerminalOutline className="w-4 h-4 text-slate-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Process Creation Map
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.processes_created.length}
+            </span>
+          </div>
           <DataGrid
             headers={["Time", "Image", "PID", "Parent", "User", "Command"]}
             rows={data.processes_created.map((p) => [
               <span
                 key="t"
-                className="text-xs text-gray-500 whitespace-nowrap font-mono"
+                className="text-xs text-slate-500 whitespace-nowrap font-mono"
               >
                 {p.time ? new Date(p.time).toLocaleTimeString() : "—"}
               </span>,
               <FPath key="i" path={p.image} />,
               <span
                 key="p"
-                className="font-mono text-xs font-bold text-violet-700"
+                className="font-mono text-[13px] font-bold text-slate-800"
               >
                 {p.pid}
               </span>,
               <FPath key="pp" path={p.parent} />,
-              <span key="u" className="text-xs text-gray-600">
+              <span key="u" className="text-xs text-slate-600">
                 {p.user}
               </span>,
               <span
                 key="c"
-                className="font-mono text-xs text-gray-500 truncate max-w-xs block"
+                className="font-mono text-xs text-slate-500 truncate max-w-xs block"
+                title={p.cmd}
               >
                 {p.cmd}
               </span>,
@@ -550,31 +561,36 @@ function SysmonSection({ data }: { data: SysmonData }) {
       )}
 
       {data.network_connections?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoGlobeOutline className="w-3.5 h-3.5 text-blue-500" />
-            Network Connections ({data.network_connections.length})
-          </h4>
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoGlobeOutline className="w-4 h-4 text-blue-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Network Connections
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.network_connections.length}
+            </span>
+          </div>
           <DataGrid
             headers={["Image", "Protocol", "Source", "Destination", "Host"]}
             rows={data.network_connections.map((c) => [
               <FPath key="i" path={c.image} />,
               <span
                 key="pr"
-                className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded"
+                className="text-[11px] uppercase font-bold text-blue-800 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded"
               >
                 {c.proto}
               </span>,
-              <span key="s" className="font-mono text-xs">
+              <span key="s" className="font-mono text-xs text-slate-700">
                 {c.src}
               </span>,
               <span
                 key="d"
-                className="font-mono text-xs font-bold text-red-600"
+                className="font-mono text-xs font-semibold text-red-700"
               >
                 {c.dst}
               </span>,
-              <span key="h" className="text-xs text-gray-500">
+              <span key="h" className="text-xs text-slate-500 font-mono">
                 {c.dst_host || "—"}
               </span>,
             ])}
@@ -583,15 +599,20 @@ function SysmonSection({ data }: { data: SysmonData }) {
       )}
 
       {data.dns_queries?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-            DNS Queries ({data.dns_queries.length})
-          </h4>
-          <div className="flex flex-wrap gap-2 mt-1">
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              DNS Queries
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.dns_queries.length}
+            </span>
+          </div>
+          <div className="p-4 flex flex-wrap gap-2">
             {data.dns_queries.map((q) => (
               <span
                 key={q}
-                className="px-3 py-1.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-lg text-xs font-mono"
+                className="px-2 py-1 bg-white border border-slate-300 shadow-sm text-slate-800 text-xs font-mono rounded"
               >
                 {q}
               </span>
@@ -601,45 +622,61 @@ function SysmonSection({ data }: { data: SysmonData }) {
       )}
 
       {data.files_created?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoFolderOpenOutline className="w-3.5 h-3.5 text-amber-500" />
-            Files Created ({data.files_created.length})
-          </h4>
-          <div className="space-y-1 max-h-48 overflow-y-auto bg-gray-50 rounded-xl p-3 border border-gray-100">
-            {data.files_created.map((f, i) => (
-              <div key={i} className="flex items-center gap-2 py-0.5">
-                <IoDocumentTextOutline className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                <FPath path={f} />
-              </div>
-            ))}
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoFolderOpenOutline className="w-4 h-4 text-emerald-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Files Created
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.files_created.length}
+            </span>
+          </div>
+          <div className="max-h-48 overflow-y-auto p-0">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-slate-100">
+                {data.files_created.map((f, i) => (
+                  <tr key={i} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-3 py-2 flex items-center gap-2">
+                      <IoDocumentTextOutline className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <FPath path={f} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {data.registry_events?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoKeyOutline className="w-3.5 h-3.5 text-rose-500" />
-            Registry Events ({data.registry_events.length})
-          </h4>
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoKeyOutline className="w-4 h-4 text-rose-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Registry Events
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.registry_events.length}
+            </span>
+          </div>
           <DataGrid
             headers={["Type", "Key", "Details"]}
             rows={data.registry_events.map((r) => [
               <span
                 key="t"
-                className={`text-xs font-semibold px-2 py-0.5 rounded-md ${r.type.includes("Set") ? "bg-amber-50 text-amber-700" : r.type.includes("Delete") ? "bg-red-50 text-red-700" : "bg-gray-100 text-gray-600"}`}
+                className={`text-[11px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${r.type.includes("Set") ? "bg-amber-50 text-amber-700 border-amber-200" : r.type.includes("Delete") ? "bg-red-50 text-red-700 border-red-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}
               >
                 {r.type}
               </span>,
               <span
                 key="k"
-                className="font-mono text-xs text-gray-600 truncate max-w-lg block"
+                className="font-mono text-xs text-slate-700 truncate max-w-lg block"
                 title={r.key}
               >
                 {r.key}
               </span>,
-              <span key="d" className="text-xs text-gray-500">
+              <span key="d" className="text-xs text-slate-500">
                 {r.details || "—"}
               </span>,
             ])}
@@ -648,24 +685,30 @@ function SysmonSection({ data }: { data: SysmonData }) {
       )}
 
       {data.dlls_loaded?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-            DLLs Loaded ({data.dlls_loaded.length})
-          </h4>
-          <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoHardwareChipOutline className="w-4 h-4 text-sky-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              DLLs Loaded
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.dlls_loaded.length}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-4 bg-white">
             {data.dlls_loaded.map((d, i) => {
               const name = d.split("\\").pop() || d;
               const isCrypto = /crypt|rsa|aes|bcrypt/i.test(name);
               const isNet = /ws2|winsock|winhttp|dnsapi|iphlp/i.test(name);
               const color = isCrypto
-                ? "bg-red-50 text-red-600 border-red-200"
+                ? "bg-red-50 text-red-700 border-red-200"
                 : isNet
-                  ? "bg-blue-50 text-blue-600 border-blue-200"
-                  : "bg-gray-50 text-gray-600 border-gray-100";
+                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200";
               return (
                 <span
                   key={i}
-                  className={`px-2 py-0.5 rounded-md border text-[11px] font-mono ${color}`}
+                  className={`px-2 py-0.5 rounded border text-xs font-mono shadow-sm ${color}`}
                   title={d}
                 >
                   {name}
@@ -694,13 +737,13 @@ function ProcmonSection({ data }: { data: ProcmonData }) {
   const regOps = data.registry_activity?.all_ops || {};
 
   return (
-    <div className="space-y-5 mt-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MiniStat
           label="Total Rows"
           value={data.total_rows?.toLocaleString() || "0"}
           icon={<IoLayersOutline className="w-4 h-4" />}
-          accent="amber"
+          accent="slate"
         />
         <MiniStat
           label="Sample Events"
@@ -729,29 +772,32 @@ function ProcmonSection({ data }: { data: ProcmonData }) {
       {/* Two-column bar charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {Object.keys(fileOps).length > 0 && (
-          <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-100">
-            <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-3">
-              File Operations
-            </h4>
-            <div className="space-y-1.5">
+          <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+              <IoFolderOpenOutline className="w-4 h-4 text-emerald-500" />
+              <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+                File Operations Summary
+              </h4>
+            </div>
+            <div className="p-4 bg-white space-y-2.5">
               {Object.entries(fileOps)
                 .sort(([, a], [, b]) => (b as number) - (a as number))
                 .slice(0, 10)
                 .map(([op, count]) => {
                   const max = Math.max(...(Object.values(fileOps) as number[]));
-                  const pct = Math.round(((count as number) / max) * 100);
+                  const pct = Math.max(2, Math.round(((count as number) / max) * 100));
                   return (
-                    <div key={op} className="flex items-center gap-2">
-                      <span className="text-xs text-amber-700 w-28 truncate font-medium">
+                    <div key={op} className="flex items-center gap-3">
+                      <span className="text-xs text-slate-600 w-28 truncate font-medium">
                         {op}
                       </span>
-                      <div className="flex-1 h-4 bg-white/60 rounded-full overflow-hidden">
+                      <div className="flex-1 h-2.5 bg-slate-100 rounded-sm overflow-hidden">
                         <div
-                          className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-full"
+                          className="h-full bg-emerald-500 rounded-sm"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <span className="text-xs font-bold text-amber-800 w-12 text-right">
+                      <span className="text-[13px] font-bold text-slate-800 w-12 text-right">
                         {(count as number).toLocaleString()}
                       </span>
                     </div>
@@ -762,29 +808,32 @@ function ProcmonSection({ data }: { data: ProcmonData }) {
         )}
 
         {Object.keys(regOps).length > 0 && (
-          <div className="bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl p-4 border border-rose-100">
-            <h4 className="text-xs font-bold text-rose-800 uppercase tracking-wider mb-3">
-              Registry Operations
-            </h4>
-            <div className="space-y-1.5">
+          <div className="border border-slate-200 rounded overflow-hidden">
+            <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+              <IoKeyOutline className="w-4 h-4 text-rose-500" />
+              <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+                Registry Operations Summary
+              </h4>
+            </div>
+            <div className="p-4 bg-white space-y-2.5">
               {Object.entries(regOps)
                 .sort(([, a], [, b]) => (b as number) - (a as number))
                 .slice(0, 10)
                 .map(([op, count]) => {
                   const max = Math.max(...(Object.values(regOps) as number[]));
-                  const pct = Math.round(((count as number) / max) * 100);
+                  const pct = Math.max(2, Math.round(((count as number) / max) * 100));
                   return (
-                    <div key={op} className="flex items-center gap-2">
-                      <span className="text-xs text-rose-700 w-28 truncate font-medium">
+                    <div key={op} className="flex items-center gap-3">
+                      <span className="text-xs text-slate-600 w-28 truncate font-medium">
                         {op}
                       </span>
-                      <div className="flex-1 h-4 bg-white/60 rounded-full overflow-hidden">
+                      <div className="flex-1 h-2.5 bg-slate-100 rounded-sm overflow-hidden">
                         <div
-                          className="h-full bg-gradient-to-r from-rose-400 to-pink-400 rounded-full"
+                          className="h-full bg-rose-500 rounded-sm"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <span className="text-xs font-bold text-rose-800 w-12 text-right">
+                      <span className="text-[13px] font-bold text-slate-800 w-12 text-right">
                         {(count as number).toLocaleString()}
                       </span>
                     </div>
@@ -797,77 +846,102 @@ function ProcmonSection({ data }: { data: ProcmonData }) {
 
       {/* Notable file activity */}
       {Object.keys(fileNotable).length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoAlertCircleOutline className="w-3.5 h-3.5 text-red-500" />
-            Notable File Activity
-          </h4>
-          {Object.entries(fileNotable).map(([op, paths]) => (
-            <div key={op} className="mb-3">
-              <span className="inline-block text-[10px] font-bold text-gray-500 uppercase bg-gray-100 px-2 py-0.5 rounded mb-1.5">
-                {op} ({(paths as string[]).length})
-              </span>
-              <div className="space-y-0.5 bg-gray-50 rounded-xl p-3 max-h-40 overflow-y-auto border border-gray-100">
-                {(paths as string[]).map((p, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <IoDocumentTextOutline className="w-3 h-3 text-gray-400 shrink-0" />
-                    <FPath path={p} />
-                  </div>
-                ))}
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoAlertCircleOutline className="w-4 h-4 text-red-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Notable File Activity
+            </h4>
+          </div>
+          <div className="p-4 bg-white space-y-4">
+            {Object.entries(fileNotable).map(([op, paths]) => (
+              <div key={op}>
+                <span className="inline-block text-[11px] font-bold text-slate-500 uppercase bg-slate-100 border border-slate-200 px-2 py-0.5 rounded mb-2 w-full text-center sm:w-auto">
+                  {op} ({(paths as string[]).length})
+                </span>
+                <div className="max-h-40 overflow-y-auto border border-slate-100 rounded">
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-slate-100">
+                      {(paths as string[]).map((p, i) => (
+                        <tr key={i} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-3 py-1.5 flex items-center gap-2">
+                            <IoDocumentTextOutline className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <FPath path={p} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
       {/* Notable registry activity */}
       {Object.keys(regNotable).length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoAlertCircleOutline className="w-3.5 h-3.5 text-red-500" />
-            Notable Registry Activity
-          </h4>
-          {Object.entries(regNotable).map(([op, paths]) => (
-            <div key={op} className="mb-3">
-              <span className="inline-block text-[10px] font-bold text-gray-500 uppercase bg-gray-100 px-2 py-0.5 rounded mb-1.5">
-                {op} ({(paths as string[]).length})
-              </span>
-              <div className="space-y-0.5 bg-gray-50 rounded-xl p-3 max-h-40 overflow-y-auto border border-gray-100">
-                {(paths as string[]).map((p, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <IoKeyOutline className="w-3 h-3 text-gray-400 shrink-0" />
-                    <span
-                      className="font-mono text-xs text-gray-600 truncate"
-                      title={p}
-                    >
-                      {p}
-                    </span>
-                  </div>
-                ))}
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoAlertCircleOutline className="w-4 h-4 text-red-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Notable Registry Activity
+            </h4>
+          </div>
+          <div className="p-4 bg-white space-y-4">
+            {Object.entries(regNotable).map(([op, paths]) => (
+              <div key={op}>
+                <span className="inline-block text-[11px] font-bold text-slate-500 uppercase bg-slate-100 border border-slate-200 px-2 py-0.5 rounded mb-2 w-full text-center sm:w-auto">
+                  {op} ({(paths as string[]).length})
+                </span>
+                <div className="max-h-40 overflow-y-auto border border-slate-100 rounded">
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-slate-100">
+                      {(paths as string[]).map((p, i) => (
+                        <tr key={i} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-3 py-1.5 flex items-center gap-2">
+                            <IoKeyOutline className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span
+                              className="font-mono text-xs text-slate-700 truncate"
+                              title={p}
+                            >
+                              {p}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
       {data.network_activity?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoGlobeOutline className="w-3.5 h-3.5 text-blue-500" />
-            Network Activity ({data.network_activity.length})
-          </h4>
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoGlobeOutline className="w-4 h-4 text-blue-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Network Activity
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.network_activity.length}
+            </span>
+          </div>
           <DataGrid
             headers={["Operation", "Endpoint", "Result"]}
             rows={data.network_activity.map((n) => [
-              <span key="o" className="font-semibold text-xs">
+              <span key="o" className="font-semibold text-xs text-slate-700">
                 {n.op}
               </span>,
-              <span key="p" className="font-mono text-xs">
+              <span key="p" className="font-mono text-xs text-slate-600">
                 {n.path}
               </span>,
               <span
                 key="r"
-                className={`text-xs font-bold px-2 py-0.5 rounded-md ${n.result === "SUCCESS" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
+                className={`text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${n.result === "SUCCESS" ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"}`}
               >
                 {n.result}
               </span>,
@@ -877,21 +951,26 @@ function ProcmonSection({ data }: { data: ProcmonData }) {
       )}
 
       {data.process_activity?.length > 0 && (
-        <div>
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-            <IoTerminalOutline className="w-3.5 h-3.5 text-slate-500" />
-            Process / Thread Activity ({data.process_activity.length})
-          </h4>
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+            <IoTerminalOutline className="w-4 h-4 text-slate-500" />
+            <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+              Process & Thread Activity
+            </h4>
+            <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+              {data.process_activity.length}
+            </span>
+          </div>
           <DataGrid
             headers={["Operation", "Path", "Detail"]}
             rows={data.process_activity.map((p) => [
-              <span key="o" className="font-semibold text-xs">
+              <span key="o" className="font-semibold text-xs text-slate-700">
                 {p.op}
               </span>,
               <FPath key="p" path={p.path} />,
               <span
                 key="d"
-                className="text-xs text-gray-500 truncate max-w-xs block"
+                className="text-xs text-slate-500 truncate max-w-xs block"
               >
                 {p.detail}
               </span>,
@@ -914,89 +993,94 @@ function NetworkSection({ data }: { data: NetworkData }) {
   const hasHttp = data.http_requests && data.http_requests.length > 0;
 
   return (
-    <div className="mt-4">
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-4">
+    <div className="mt-4 border border-slate-200 rounded overflow-hidden">
+      <div className="flex bg-slate-50 border-b border-slate-200">
         {[
-          { key: "tcp" as const, label: "TCP Conversations", has: hasTcp },
+          { key: "tcp" as const, label: "TCP Conversations", has: hasTcp, icon: <IoGitNetworkOutline className="w-3.5 h-3.5" /> },
           {
             key: "dns" as const,
             label: `DNS (${data.dns_queries?.length || 0})`,
             has: hasDns,
+            icon: <IoGlobeOutline className="w-3.5 h-3.5" />
           },
           {
             key: "http" as const,
             label: `HTTP (${data.http_requests?.length || 0})`,
             has: hasHttp,
+            icon: <IoSwapHorizontalOutline className="w-3.5 h-3.5" />
           },
         ].map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+            className={`flex-1 px-4 py-2.5 text-[13px] font-bold uppercase tracking-wider transition-colors flex items-center justify-center gap-2 border-b-2 ${
               tab === t.key
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
+                ? "bg-white text-blue-700 border-blue-600"
+                : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"
             } ${!t.has ? "opacity-40" : ""}`}
           >
+            {t.icon}
             {t.label}
           </button>
         ))}
       </div>
 
-      {tab === "tcp" &&
-        (hasTcp ? (
-          <pre className="bg-gray-900 text-green-400 rounded-xl p-4 text-xs overflow-x-auto max-h-72 overflow-y-auto font-mono leading-relaxed">
-            {data.tcp_conversations}
-          </pre>
-        ) : (
-          <NoData label="No TCP conversation data captured." />
-        ))}
+      <div className="p-4 bg-white">
+        {tab === "tcp" &&
+          (hasTcp ? (
+            <pre className="bg-slate-50 border border-slate-200 text-slate-700 rounded p-4 text-xs overflow-x-auto max-h-72 overflow-y-auto font-mono leading-relaxed">
+              {data.tcp_conversations}
+            </pre>
+          ) : (
+            <NoData label="No TCP conversation data captured." />
+          ))}
 
-      {tab === "dns" &&
-        (hasDns ? (
-          <div className="flex flex-wrap gap-2">
-            {data.dns_queries!.map((q) => (
-              <span
-                key={q}
-                className="px-3 py-1.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-lg text-xs font-mono"
-              >
-                {q}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <NoData label="No DNS queries captured." />
-        ))}
+        {tab === "dns" &&
+          (hasDns ? (
+            <div className="flex flex-wrap gap-2">
+              {data.dns_queries!.map((q) => (
+                <span
+                  key={q}
+                  className="px-2 py-1 bg-white border border-slate-300 shadow-sm text-slate-800 text-xs font-mono rounded"
+                >
+                  {q}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <NoData label="No DNS queries captured." />
+          ))}
 
-      {tab === "http" &&
-        (hasHttp ? (
-          <DataGrid
-            headers={["Method", "Host", "URI"]}
-            rows={data.http_requests!.map((r) => [
-              <span
-                key="m"
-                className={`text-xs font-bold px-2 py-0.5 rounded-md ${r.method === "GET" ? "bg-green-50 text-green-700" : r.method === "POST" ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-700"}`}
-              >
-                {r.method}
-              </span>,
-              <span key="h" className="font-mono text-xs">
-                {r.host}
-              </span>,
-              <span key="u" className="font-mono text-xs text-gray-600">
-                {r.uri}
-              </span>,
-            ])}
+        {tab === "http" &&
+          (hasHttp ? (
+            <DataGrid
+              headers={["Method", "Host", "URI"]}
+              rows={data.http_requests!.map((r) => [
+                <span
+                  key="m"
+                  className={`text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${r.method === "GET" ? "bg-green-50 text-green-700 border-green-200" : r.method === "POST" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}
+                >
+                  {r.method}
+                </span>,
+                <span key="h" className="font-mono text-xs text-slate-700">
+                  {r.host}
+                </span>,
+                <span key="u" className="font-mono text-xs text-slate-500">
+                  {r.uri}
+                </span>,
+              ])}
+            />
+          ) : (
+            <NoData label="No HTTP requests captured." />
+          ))}
+
+        {!hasTcp && !hasDns && !hasHttp && (
+          <NoData
+            label="No network traffic captured."
+            hint="The VM uses host-only networking — connection attempts are logged as IOCs."
           />
-        ) : (
-          <NoData label="No HTTP requests captured." />
-        ))}
-
-      {!hasTcp && !hasDns && !hasHttp && (
-        <NoData
-          label="No network traffic captured."
-          hint="The VM uses host-only networking — connection attempts are logged as IOCs."
-        />
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -1008,24 +1092,21 @@ function NetworkSection({ data }: { data: NetworkData }) {
 function HandleSection({ data }: { data: string }) {
   const lines = data.split("\n").filter((l) => l.trim());
   return (
-    <div className="mt-4">
-      <div className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
-        <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/50 border-b border-gray-700">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-red-500/80" />
-            <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-            <div className="w-3 h-3 rounded-full bg-green-500/80" />
-          </div>
-          <span className="text-gray-400 text-xs font-mono ml-2">
-            handle_snapshot.txt — {lines.length} lines
-          </span>
-        </div>
-        <pre className="text-green-400 p-4 text-xs overflow-x-auto max-h-72 overflow-y-auto font-mono leading-relaxed">
-          {lines.length > 200
-            ? lines.slice(0, 200).join("\n") + "\n\n… truncated …"
-            : data}
-        </pre>
+    <div className="mt-4 border border-slate-200 rounded overflow-hidden">
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+        <IoKeyOutline className="w-4 h-4 text-slate-500" />
+        <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+          Handle Snapshot Dump
+        </h4>
+        <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+          {lines.length} lines
+        </span>
       </div>
+      <pre className="bg-white text-slate-700 p-4 text-[11px] overflow-x-auto max-h-72 overflow-y-auto font-mono leading-relaxed">
+        {lines.length > 200
+          ? lines.slice(0, 200).join("\n") + "\n\n… truncated …"
+          : data}
+      </pre>
     </div>
   );
 }
@@ -1039,17 +1120,28 @@ function TcpvconSection({ data }: { data: TcpvconRow[] }) {
     return <NoData label="No active connections captured." />;
   const headers = Object.keys(data[0]);
   return (
-    <div className="mt-4">
-      <DataGrid
-        headers={headers}
-        rows={data.map((row) =>
-          headers.map((h) => (
-            <span key={h} className="font-mono text-xs">
-              {row[h]}
-            </span>
-          )),
-        )}
-      />
+    <div className="mt-4 border border-slate-200 rounded overflow-hidden">
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center gap-2">
+        <IoSwapHorizontalOutline className="w-4 h-4 text-slate-500" />
+        <h4 className="text-[13px] font-bold text-slate-700 uppercase tracking-wider">
+          TCPVCON Dump
+        </h4>
+        <span className="ml-auto text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">
+          {data.length} connections
+        </span>
+      </div>
+      <div className="bg-white p-4">
+        <DataGrid
+          headers={headers}
+          rows={data.map((row) =>
+            headers.map((h) => (
+              <span key={h} className="font-mono text-xs text-slate-700">
+                {row[h]}
+              </span>
+            )),
+          )}
+        />
+      </div>
     </div>
   );
 }
@@ -1068,11 +1160,11 @@ function CollectorBadges({
       {metadata.collectors.map((c) => {
         const color =
           c.status === "ok"
-            ? "bg-green-50 text-green-700 border-green-200"
+            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
             : c.status === "no_data"
               ? "bg-amber-50 text-amber-700 border-amber-200"
               : c.status === "unavailable"
-                ? "bg-gray-100 text-gray-500 border-gray-200"
+                ? "bg-slate-50 text-slate-500 border-slate-200"
                 : "bg-red-50 text-red-700 border-red-200";
         const icon =
           c.status === "ok"
@@ -1085,7 +1177,7 @@ function CollectorBadges({
         return (
           <span
             key={c.collector}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium ${color}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-medium ${color}`}
           >
             <span>{icon}</span>
             {c.collector}
@@ -1155,7 +1247,7 @@ function RiskGauge({ score, level }: { score: number; level: string }) {
           <span className="text-3xl font-black" style={{ color }}>
             {score}
           </span>
-          <span className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">
+          <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">
             / 100
           </span>
         </div>
@@ -1183,10 +1275,10 @@ function VerdictBadge({ verdict }: { verdict: string }) {
         ? "bg-amber-100 text-amber-700 border-amber-200"
         : v === "benign"
           ? "bg-green-100 text-green-700 border-green-200"
-          : "bg-gray-100 text-gray-600 border-gray-200";
+          : "bg-slate-100 text-slate-600 border-slate-200";
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold uppercase ${cls}`}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[13px] font-bold uppercase ${cls}`}
     >
       {v === "malicious" && <IoSkullOutline className="w-3 h-3" />}
       {v === "suspicious" && <IoWarningOutline className="w-3 h-3" />}
@@ -1212,10 +1304,10 @@ function SeverityBadge({ severity }: { severity: string }) {
           ? "bg-amber-100 text-amber-700"
           : s === "low"
             ? "bg-blue-100 text-blue-700"
-            : "bg-gray-100 text-gray-600";
+            : "bg-slate-100 text-slate-600";
   return (
     <span
-      className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${cls}`}
+      className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold uppercase ${cls}`}
     >
       {severity}
     </span>
@@ -1238,10 +1330,36 @@ function AIAnalysisTab({
   const [analyzing, setAnalyzing] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
+  const [aiProgress, setAiProgress] = useState<AIProgress | null>(null);
+
+  const handleDownloadPDF = async () => {
+    if (!aiReport) return;
+    try {
+      const { generatePDFReport } = await import("@/lib/pdf");
+      generatePDFReport(aiReport, analysisId);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+    }
+  };
 
   const handleRunAnalysis = async () => {
     setAnalyzing(true);
     setAiError(null);
+    setAiReport(null);
+    setAiProgress(null);
+
+    // Start progress polling
+    const progressInterval = setInterval(async () => {
+      try {
+        const pRes = await getAIProgress(analysisId);
+        if (pRes.status === "ok" && pRes.data) {
+          setAiProgress(pRes.data);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch AI progress", err);
+      }
+    }, 1000);
+
     try {
       const resp = await runAIAnalysis(analysisId);
       if (resp.status === "ok" && resp.data) {
@@ -1252,7 +1370,9 @@ function AIAnalysisTab({
     } catch {
       setAiError("Failed to connect to the AI analysis service.");
     } finally {
+      clearInterval(progressInterval);
       setAnalyzing(false);
+      setAiProgress(null);
     }
   };
 
@@ -1261,13 +1381,13 @@ function AIAnalysisTab({
     return (
       <div className="p-8">
         <div className="text-center max-w-lg mx-auto">
-          <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-violet-100 to-purple-200 rounded-2xl flex items-center justify-center shadow-inner">
-            <IoSparklesOutline className="w-10 h-10 text-violet-600" />
+          <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-sky-200 rounded-md flex items-center justify-center shadow-inner">
+            <IoSparklesOutline className="w-10 h-10 text-blue-600" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">
+          <h3 className="text-xl font-bold text-slate-900 mb-2">
             AI Threat Analysis
           </h3>
-          <p className="text-gray-500 mb-6 text-sm leading-relaxed">
+          <p className="text-slate-500 mb-6 text-sm leading-relaxed">
             Run multi-agent AI analysis powered by <strong>GPT-5 Mini</strong>.
             The pipeline dispatches data to 6 specialized agents (Sysmon,
             Procmon, Network, Handle, TCPVcon, Metadata) then synthesizes a
@@ -1275,14 +1395,14 @@ function AIAnalysisTab({
             extraction.
           </p>
           {aiError && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-sm text-red-700 flex items-center gap-2">
+            <div className="bg-red-50 border border-red-200 rounded p-3 mb-4 text-sm text-red-700 flex items-center gap-2">
               <IoAlertCircleOutline className="w-4 h-4 shrink-0" />
               {aiError}
             </div>
           )}
           <button
             onClick={handleRunAnalysis}
-            className="inline-flex items-center gap-2.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold px-8 py-3.5 rounded-xl shadow-lg shadow-violet-200 transition-all hover:shadow-xl hover:shadow-violet-300 active:scale-[0.98]"
+            className="inline-flex items-center gap-2.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white font-semibold px-8 py-3.5 rounded shadow-lg shadow-blue-200 transition-all hover:shadow-xl hover:shadow-blue-300 active:scale-[0.98]"
           >
             <IoFlashOutline className="w-5 h-5" />
             Run AI Analysis
@@ -1304,12 +1424,12 @@ function AIAnalysisTab({
             ].map((item) => (
               <div
                 key={item.label}
-                className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center"
+                className="bg-slate-50 border border-slate-200 rounded p-3 text-center"
               >
-                <div className="flex justify-center text-gray-400 mb-1">
+                <div className="flex justify-center text-slate-400 mb-1">
                   {item.icon}
                 </div>
-                <p className="text-xs text-gray-500 font-medium">
+                <p className="text-xs text-slate-500 font-medium">
                   {item.label}
                 </p>
               </div>
@@ -1322,37 +1442,14 @@ function AIAnalysisTab({
 
   /* ── Analyzing spinner ── */
   if (analyzing) {
-    return (
-      <div className="p-12 text-center">
-        <div className="relative w-20 h-20 mx-auto mb-6">
-          <div className="absolute inset-0 animate-spin rounded-full border-4 border-violet-200 border-t-violet-600" />
-          <div
-            className="absolute inset-3 animate-spin rounded-full border-4 border-purple-200 border-b-purple-600"
-            style={{
-              animationDirection: "reverse",
-              animationDuration: "1.5s",
-            }}
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <IoSparklesOutline className="w-6 h-6 text-violet-500 animate-pulse" />
-          </div>
-        </div>
-        <h3 className="text-lg font-bold text-gray-900 mb-1">
-          Analyzing with AI Agents…
-        </h3>
-        <p className="text-sm text-gray-500">
-          Running 6 specialized agents + threat summarizer. This may take 30–90
-          seconds.
-        </p>
-      </div>
-    );
+    return <AIPipelineAnimation progress={aiProgress} />;
   }
 
   /* ── Failed report ── */
   if (aiReport && aiReport.status === "failed") {
     return (
       <div className="p-8">
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+        <div className="bg-red-50 border border-red-200 rounded-md p-6 text-center">
           <IoAlertCircleOutline className="w-10 h-10 text-red-400 mx-auto mb-3" />
           <h3 className="text-lg font-bold text-red-800 mb-1">
             Analysis Failed
@@ -1362,7 +1459,7 @@ function AIAnalysisTab({
           </p>
           <button
             onClick={handleRunAnalysis}
-            className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-6 py-2.5 rounded-xl transition-colors"
+            className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-6 py-2.5 rounded transition-colors"
           >
             <IoRefreshOutline className="w-4 h-4" />
             Retry Analysis
@@ -1385,7 +1482,7 @@ function AIAnalysisTab({
       {/* ── Top row: Risk gauge + Classification + Meta ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Risk Score */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col items-center justify-center">
+        <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6 flex flex-col items-center justify-center">
           <RiskGauge
             score={aiReport.risk_score}
             level={aiReport.threat_level}
@@ -1393,45 +1490,45 @@ function AIAnalysisTab({
         </div>
 
         {/* Classification */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6">
+          <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
             <IoShieldOutline className="w-3.5 h-3.5" />
             Classification
           </h4>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Malware Type</span>
+              <span className="text-xs text-slate-500">Malware Type</span>
               <span
-                className="text-sm font-bold text-gray-900 capitalize max-w-[200px] truncate"
+                className="text-sm font-bold text-slate-900 capitalize max-w-[200px] truncate"
                 title={aiReport.classification.malware_type}
               >
-                {aiReport.classification.malware_type}
+                {aiReport.classification.malware_type?.toLowerCase() === "unknown" ? "Generic" : aiReport.classification.malware_type}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Family</span>
-              <span className="text-sm font-bold text-gray-900 capitalize">
-                {aiReport.classification.malware_family}
+              <span className="text-xs text-slate-500">Family</span>
+              <span className="text-sm font-bold text-slate-900 capitalize">
+                {aiReport.classification.malware_family?.toLowerCase() === "unknown" ? "Generic" : aiReport.classification.malware_family}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Platform</span>
-              <span className="text-sm font-bold text-gray-900 capitalize">
-                {aiReport.classification.platform}
+              <span className="text-xs text-slate-500">Platform</span>
+              <span className="text-sm font-bold text-slate-900 capitalize">
+                {aiReport.classification.platform?.toLowerCase() === "unknown" ? "Generic" : aiReport.classification.platform}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Confidence</span>
+              <span className="text-xs text-slate-500">Confidence</span>
               <div className="flex items-center gap-2">
-                <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className="w-20 h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full"
+                    className="h-full bg-gradient-to-r from-blue-500 to-sky-500 rounded-full"
                     style={{
                       width: `${aiReport.classification.confidence}%`,
                     }}
                   />
                 </div>
-                <span className="text-xs font-bold text-violet-700">
+                <span className="text-[13px] font-bold text-blue-700">
                   {aiReport.classification.confidence}%
                 </span>
               </div>
@@ -1440,58 +1537,67 @@ function AIAnalysisTab({
         </div>
 
         {/* Meta */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6">
+          <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
             <IoServerOutline className="w-3.5 h-3.5" />
             Analysis Meta
           </h4>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Model</span>
-              <span className="text-xs font-mono bg-violet-50 text-violet-700 px-2 py-0.5 rounded">
+              <span className="text-xs text-slate-500">Model</span>
+              <span className="text-xs font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
                 {aiReport.model}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Status</span>
-              <span className="text-xs font-bold text-green-600 capitalize">
+              <span className="text-xs text-slate-500">Status</span>
+              <span className="text-[13px] font-bold text-green-600 capitalize">
                 {aiReport.status}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Agents Run</span>
-              <span className="text-sm font-bold text-gray-900">
+              <span className="text-xs text-slate-500">Agents Run</span>
+              <span className="text-sm font-bold text-slate-900">
                 {aiReport.tool_results.length}
               </span>
             </div>
             {aiReport.completed_at && (
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Completed</span>
-                <span className="text-xs text-gray-600">
+                <span className="text-xs text-slate-500">Completed</span>
+                <span className="text-xs font-medium text-slate-600">
                   {new Date(aiReport.completed_at).toLocaleString()}
                 </span>
               </div>
             )}
           </div>
-          <button
-            onClick={handleRunAnalysis}
-            disabled={analyzing}
-            className="w-full mt-4 inline-flex items-center justify-center gap-2 text-xs font-medium text-violet-600 hover:text-violet-700 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg transition-colors"
-          >
-            <IoRefreshOutline className="w-3.5 h-3.5" />
-            Re-run Analysis
-          </button>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button
+              onClick={handleRunAnalysis}
+              disabled={analyzing}
+              className="w-full inline-flex items-center justify-center gap-2 text-[13px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2.5 rounded transition-colors"
+            >
+              <IoRefreshOutline className="w-4 h-4" />
+              Re-run
+            </button>
+            <button
+              onClick={handleDownloadPDF}
+              className="w-full inline-flex items-center justify-center gap-2 text-[13px] font-bold text-slate-700 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-2.5 rounded transition-colors"
+            >
+              <IoDownloadOutline className="w-4 h-4" />
+              Download PDF
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ── Executive Summary ── */}
       {aiReport.executive_summary && (
-        <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-2xl border border-gray-200 p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+        <div className="bg-gradient-to-br from-slate-50 to-slate-50 rounded-md border border-slate-200 p-6">
+          <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
             <IoDocumentTextOutline className="w-3.5 h-3.5" />
             Executive Summary
           </h4>
-          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+          <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
             {aiReport.executive_summary}
           </p>
         </div>
@@ -1499,8 +1605,8 @@ function AIAnalysisTab({
 
       {/* ── Key Findings ── */}
       {findings.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6">
+          <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
             <IoAlertCircleOutline className="w-3.5 h-3.5 text-red-500" />
             Key Findings ({findings.length})
           </h4>
@@ -1508,15 +1614,15 @@ function AIAnalysisTab({
             {findings.map((f, i) => (
               <div
                 key={i}
-                className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100"
+                className="flex items-start gap-3 p-3 rounded bg-slate-50 border border-slate-100"
               >
                 <SeverityBadge severity={f.severity} />
                 <div className="flex-1">
-                  <p className="text-sm text-gray-700 leading-relaxed">
+                  <p className="text-sm text-slate-700 leading-relaxed">
                     {f.description}
                   </p>
                   {f.source && (
-                    <span className="text-[10px] text-gray-400 mt-1 inline-block">
+                    <span className="text-[11px] text-slate-400 mt-1 inline-block">
                       Source: {f.source}
                     </span>
                   )}
@@ -1529,31 +1635,31 @@ function AIAnalysisTab({
 
       {/* ── IOC Table ── */}
       {iocs.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <IoFingerPrintOutline className="w-3.5 h-3.5 text-violet-500" />
+        <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6">
+          <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <IoFingerPrintOutline className="w-3.5 h-3.5 text-blue-500" />
             Indicators of Compromise ({iocs.length})
           </h4>
-          <div className="overflow-x-auto rounded-xl border border-gray-100">
+          <div className="overflow-x-auto rounded border border-slate-100">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50/80">
-                  <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                <tr className="bg-slate-50/80">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100">
                     Type
                   </th>
-                  <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100">
                     Severity
                   </th>
-                  <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100">
                     Value
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-slate-50">
                 {iocs.map((ioc, i) => (
                   <tr
                     key={i}
-                    className="hover:bg-violet-50/30 transition-colors"
+                    className="hover:bg-blue-50/30 transition-colors"
                   >
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-medium uppercase">
@@ -1581,7 +1687,7 @@ function AIAnalysisTab({
                     <td className="px-4 py-2.5">
                       <SeverityBadge severity={ioc.severity} />
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-700 max-w-md truncate">
+                    <td className="px-4 py-2.5 font-mono text-xs text-slate-700 max-w-md truncate">
                       {ioc.value}
                     </td>
                   </tr>
@@ -1592,43 +1698,11 @@ function AIAnalysisTab({
         </div>
       )}
 
-      {/* ── MITRE ATT&CK ── */}
-      {mitre.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <IoShieldCheckmarkOutline className="w-3.5 h-3.5 text-blue-500" />
-            MITRE ATT&CK Mapping ({mitre.length})
-          </h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {mitre.map((t, i) => (
-              <div
-                key={i}
-                className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded">
-                    {t.id}
-                  </span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    {t.name}
-                  </span>
-                </div>
-                <span className="inline-block text-[10px] font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full mb-2 capitalize">
-                  {t.tactic}
-                </span>
-                <p className="text-xs text-gray-600 leading-relaxed">
-                  {t.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── Recommendations ── */}
       {recommendations.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6">
+          <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
             <IoArrowForwardOutline className="w-3.5 h-3.5 text-emerald-500" />
             Recommendations ({recommendations.length})
           </h4>
@@ -1636,10 +1710,10 @@ function AIAnalysisTab({
             {recommendations.map((rec, i) => (
               <div
                 key={i}
-                className="flex items-start gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100"
+                className="flex items-start gap-3 p-3 rounded bg-emerald-50 border border-emerald-100"
               >
                 <span
-                  className={`shrink-0 mt-0.5 inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                  className={`shrink-0 mt-0.5 inline-block px-2 py-0.5 rounded text-[11px] font-bold uppercase ${
                     rec.priority.toLowerCase() === "high"
                       ? "bg-red-100 text-red-700"
                       : rec.priority.toLowerCase() === "medium"
@@ -1649,7 +1723,7 @@ function AIAnalysisTab({
                 >
                   {rec.priority}
                 </span>
-                <p className="text-sm text-gray-700 leading-relaxed flex-1">
+                <p className="text-sm text-slate-700 leading-relaxed flex-1">
                   {rec.action}
                 </p>
               </div>
@@ -1659,22 +1733,22 @@ function AIAnalysisTab({
       )}
 
       {/* ── Per-Tool Agent Results ── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-          <IoCodeSlashOutline className="w-3.5 h-3.5 text-gray-500" />
+      <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6">
+        <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+          <IoCodeSlashOutline className="w-3.5 h-3.5 text-slate-500" />
           Per-Tool Agent Analysis ({aiReport.tool_results.length})
         </h4>
         <div className="space-y-2">
           {aiReport.tool_results.map((tr: AIToolResult) => (
             <div
               key={tr.tool}
-              className="rounded-xl border border-gray-100 overflow-hidden"
+              className="rounded border border-slate-100 overflow-hidden"
             >
               <button
                 onClick={() =>
                   setExpandedTool(expandedTool === tr.tool ? null : tr.tool)
                 }
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
               >
                 <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600">
                   {tr.tool === "sysmon" && (
@@ -1694,26 +1768,26 @@ function AIAnalysisTab({
                     <IoServerOutline className="w-4 h-4" />
                   )}
                 </div>
-                <span className="text-sm font-semibold text-gray-800 capitalize flex-1 text-left">
+                <span className="text-sm font-semibold text-slate-800 capitalize flex-1 text-left">
                   {tr.tool}
                 </span>
                 <VerdictBadge verdict={tr.verdict} />
-                <span className="text-xs text-gray-400 ml-2">
+                <span className="text-xs text-slate-400 ml-2">
                   {tr.confidence}% conf
                 </span>
-                <div className="flex items-center gap-2 ml-3 text-gray-400">
+                <div className="flex items-center gap-2 ml-3 text-slate-400">
                   {tr.findings_count > 0 && (
-                    <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
+                    <span className="text-[11px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
                       {tr.findings_count} findings
                     </span>
                   )}
                   {tr.iocs_count > 0 && (
-                    <span className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded">
+                    <span className="text-[11px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
                       {tr.iocs_count} IOCs
                     </span>
                   )}
                 </div>
-                <span className="text-gray-400">
+                <span className="text-slate-400">
                   {expandedTool === tr.tool ? (
                     <IoChevronUpOutline className="w-4 h-4" />
                   ) : (
@@ -1722,9 +1796,9 @@ function AIAnalysisTab({
                 </span>
               </button>
               {expandedTool === tr.tool && (
-                <div className="px-4 pb-4 border-t border-gray-50 pt-3">
+                <div className="px-4 pb-4 border-t border-slate-50 pt-3">
                   {tr.summary && (
-                    <p className="text-sm text-gray-600 leading-relaxed mb-3">
+                    <p className="text-sm text-slate-600 leading-relaxed mb-3">
                       {tr.summary}
                     </p>
                   )}
@@ -1736,7 +1810,7 @@ function AIAnalysisTab({
                   {/* Per-tool findings */}
                   {tr.findings && tr.findings.length > 0 && (
                     <div className="mb-3">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                         Findings
                       </p>
                       <div className="space-y-1.5">
@@ -1746,8 +1820,8 @@ function AIAnalysisTab({
                             className="flex items-start gap-2 text-xs"
                           >
                             <SeverityBadge severity={f.severity} />
-                            <span className="text-gray-600">
-                              <span className="font-medium text-gray-800">
+                            <span className="text-slate-600">
+                              <span className="font-medium text-slate-800">
                                 {f.indicator}
                               </span>
                               {f.description && ` — ${f.description}`}
@@ -1760,14 +1834,14 @@ function AIAnalysisTab({
                   {/* Per-tool IOCs */}
                   {tr.iocs && tr.iocs.length > 0 && (
                     <div className="mb-3">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                         IOCs
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {tr.iocs.map((ioc, ii) => (
                           <span
                             key={ii}
-                            className="text-[10px] bg-violet-50 text-violet-700 px-2 py-0.5 rounded font-mono"
+                            className="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-mono"
                           >
                             {ioc.type}: {ioc.value}
                           </span>
@@ -1776,10 +1850,10 @@ function AIAnalysisTab({
                     </div>
                   )}
                   <details className="group">
-                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+                    <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-600">
                       Raw JSON response
                     </summary>
-                    <pre className="mt-2 bg-gray-900 text-green-400 rounded-lg p-3 text-[11px] overflow-x-auto max-h-48 overflow-y-auto font-mono">
+                    <pre className="mt-2 bg-slate-900 text-green-400 rounded-lg p-3 text-xs overflow-x-auto max-h-48 overflow-y-auto font-mono">
                       {tr.raw_response}
                     </pre>
                   </details>
@@ -1792,12 +1866,12 @@ function AIAnalysisTab({
 
       {/* ── Detailed Analysis ── */}
       {aiReport.detailed_analysis && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+        <div className="bg-white rounded-md border border-slate-100 shadow-sm p-6">
+          <h4 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
             <IoDocumentTextOutline className="w-3.5 h-3.5" />
             Detailed Analysis
           </h4>
-          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+          <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
             {aiReport.detailed_analysis}
           </p>
         </div>
@@ -1917,7 +1991,7 @@ export default function ReportsPage() {
       case "running":
         return "text-blue-600 bg-blue-50 border-blue-200";
       default:
-        return "text-gray-600 bg-gray-50 border-gray-200";
+        return "text-slate-600 bg-slate-50 border-slate-200";
     }
   };
 
@@ -1934,7 +2008,7 @@ export default function ReportsPage() {
           <IoRadioButtonOnOutline className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
         );
       default:
-        return <IoTimeOutline className="w-3.5 h-3.5 text-gray-400" />;
+        return <IoTimeOutline className="w-3.5 h-3.5 text-slate-400" />;
     }
   };
 
@@ -1955,8 +2029,8 @@ export default function ReportsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analysis Reports</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="text-2xl font-bold text-slate-900">Analysis Reports</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
             {reports.length} report{reports.length !== 1 ? "s" : ""} available
           </p>
         </div>
@@ -1972,7 +2046,7 @@ export default function ReportsPage() {
           )}
           <button
             onClick={fetchData}
-            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-violet-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-violet-50"
+            className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50"
           >
             <IoRefreshOutline className="w-4 h-4" />
             Refresh
@@ -1982,7 +2056,7 @@ export default function ReportsPage() {
 
       {/* Clear confirmation */}
       {showClearConfirm && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+        <div className="bg-red-50 border border-red-200 rounded-md p-5">
           <div className="flex items-start gap-3">
             <IoAlertCircleOutline className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
             <div className="flex-1">
@@ -1998,7 +2072,7 @@ export default function ReportsPage() {
                 <button
                   onClick={handleClearAll}
                   disabled={clearing}
-                  className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+                  className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded transition-colors"
                 >
                   <IoTrashOutline className="w-4 h-4" />
                   {clearing ? "Deleting..." : "Yes, Delete All"}
@@ -2006,7 +2080,7 @@ export default function ReportsPage() {
                 <button
                   onClick={() => setShowClearConfirm(false)}
                   disabled={clearing}
-                  className="text-sm text-gray-600 hover:text-gray-800 px-4 py-2 rounded-xl border border-gray-300 hover:bg-gray-50 transition-colors"
+                  className="text-sm text-slate-600 hover:text-slate-800 px-4 py-2 rounded border border-slate-300 hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
@@ -2017,32 +2091,32 @@ export default function ReportsPage() {
       )}
 
       {loading && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-          <div className="animate-spin w-8 h-8 border-4 border-violet-200 border-t-violet-500 rounded-full mx-auto mb-3" />
-          <p className="text-sm text-gray-500">Loading reports...</p>
+        <div className="bg-white rounded-md shadow-sm border border-slate-100 p-12 text-center">
+          <div className="animate-spin w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full mx-auto mb-3" />
+          <p className="text-sm text-slate-500">Loading reports...</p>
         </div>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center gap-3">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-center gap-3">
           <IoAlertCircleOutline className="w-5 h-5 text-red-500 shrink-0" />
           <p className="text-sm text-red-700">{error}</p>
         </div>
       )}
 
       {!loading && !error && reports.length === 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-16 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-2xl flex items-center justify-center">
-            <IoDocumentTextOutline className="w-8 h-8 text-gray-400" />
+        <div className="bg-white rounded-md shadow-sm border border-slate-100 p-16 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 bg-slate-100 rounded-md flex items-center justify-center">
+            <IoDocumentTextOutline className="w-8 h-8 text-slate-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-1">
+          <h3 className="text-lg font-semibold text-slate-800 mb-1">
             No analysis reports yet
           </h3>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-slate-400">
             Submit a sample from the{" "}
             <a
               href="/scan"
-              className="text-violet-600 hover:text-violet-700 font-medium"
+              className="text-blue-600 hover:text-blue-700 font-medium"
             >
               Scan
             </a>{" "}
@@ -2056,23 +2130,23 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* ────── Sidebar ────── */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="bg-white rounded-md shadow-sm border border-slate-100 overflow-hidden">
               {/* Search */}
-              <div className="p-3 border-b border-gray-100">
+              <div className="p-3 border-b border-slate-100">
                 <div className="relative">
-                  <IoSearchOutline className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <IoSearchOutline className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search reports..."
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-300 transition-all"
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition-all"
                   />
                 </div>
               </div>
 
               {/* Report list */}
-              <div className="max-h-[calc(100vh-280px)] overflow-y-auto divide-y divide-gray-50">
+              <div className="max-h-[calc(100vh-280px)] overflow-y-auto divide-y divide-slate-50">
                 {filteredReports.map((report) => {
                   const isActive = selected?.analysis_id === report.analysis_id;
                   return (
@@ -2081,26 +2155,26 @@ export default function ReportsPage() {
                       onClick={() => selectReport(report)}
                       className={`w-full text-left px-4 py-3.5 transition-all ${
                         isActive
-                          ? "bg-violet-50 border-l-3 border-l-violet-500"
-                          : "hover:bg-gray-50"
+                          ? "bg-blue-50 border-l-3 border-l-blue-500"
+                          : "hover:bg-slate-50"
                       }`}
                     >
                       <div className="flex items-start gap-2.5">
                         {statusIcon(report.status)}
                         <div className="flex-1 min-w-0">
                           <p
-                            className={`text-sm font-medium truncate ${isActive ? "text-violet-900" : "text-gray-800"}`}
+                            className={`text-sm font-medium truncate ${isActive ? "text-blue-900" : "text-slate-800"}`}
                           >
                             {report.sample_name || "Unknown"}
                           </p>
                           <div className="flex items-center gap-2 mt-1">
                             <span
-                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusColor(report.status)}`}
+                              className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-medium border ${statusColor(report.status)}`}
                             >
                               {report.status}
                             </span>
                             {report.started_at && (
-                              <span className="text-[10px] text-gray-400">
+                              <span className="text-[11px] text-slate-400">
                                 {new Date(
                                   report.started_at,
                                 ).toLocaleDateString()}
@@ -2114,7 +2188,7 @@ export default function ReportsPage() {
                 })}
                 {filteredReports.length === 0 && (
                   <div className="p-6 text-center">
-                    <p className="text-xs text-gray-400">No matches</p>
+                    <p className="text-xs text-slate-400">No matches</p>
                   </div>
                 )}
               </div>
@@ -2126,33 +2200,33 @@ export default function ReportsPage() {
             {selected ? (
               <>
                 {/* Report header card */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                  <div className="flex items-start justify-between mb-4">
+                <div className="bg-white rounded-md shadow-sm border border-slate-100 p-6">
+                  <div className="flex items-start justify-between mb-4 border-b border-slate-100 pb-4">
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-xl font-bold text-gray-900 truncate">
+                      <h2 className="text-xl font-bold text-slate-900 truncate tracking-tight">
                         {selected.sample_name}
                       </h2>
-                      <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                      <p className="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">
                         {selected.analysis_id}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-4 shrink-0">
                       {aiReport && (
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[13px] font-bold uppercase tracking-wider border ${
                             aiReport.risk_score >= 70
-                              ? "bg-red-100 text-red-700"
+                              ? "bg-red-50 text-red-700 border-red-200"
                               : aiReport.risk_score >= 40
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-green-100 text-green-700"
+                                ? "bg-amber-50 text-amber-700 border-amber-200"
+                                : "bg-emerald-50 text-emerald-700 border-emerald-200"
                           }`}
                         >
-                          <IoAnalyticsOutline className="w-3 h-3" />
+                          <IoAnalyticsOutline className="w-3.5 h-3.5" />
                           Risk: {aiReport.risk_score}
                         </span>
                       )}
                       <span
-                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium border ${statusColor(selected.status)}`}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded text-[13px] font-bold uppercase tracking-wider border ${statusColor(selected.status)}`}
                       >
                         {selected.status === "complete" && (
                           <IoCheckmarkCircleOutline className="w-3.5 h-3.5" />
@@ -2168,7 +2242,7 @@ export default function ReportsPage() {
                       label="Timeout"
                       value={`${selected.timeout}s`}
                       icon={<IoTimeOutline className="w-4 h-4" />}
-                      accent="violet"
+                      accent="blue"
                     />
                     <MiniStat
                       label="Sysmon Events"
@@ -2201,7 +2275,7 @@ export default function ReportsPage() {
                   </div>
 
                   {/* Timestamps */}
-                  <div className="flex flex-wrap gap-4 text-xs text-gray-500 pt-3 border-t border-gray-100">
+                  <div className="flex flex-wrap gap-4 text-xs text-slate-500 pt-3 border-t border-slate-100">
                     {selected.started_at && (
                       <span className="flex items-center gap-1">
                         <IoTimeOutline className="w-3 h-3" />
@@ -2221,7 +2295,7 @@ export default function ReportsPage() {
                       <span className="flex items-center gap-1">
                         <IoTerminalOutline className="w-3 h-3" />
                         Process:{" "}
-                        <code className="bg-gray-100 px-1.5 py-0.5 rounded text-[11px]">
+                        <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs">
                           {rd?.sysmon?.sample_process ||
                             rd?.procmon?.sample_process}
                         </code>
@@ -2230,7 +2304,7 @@ export default function ReportsPage() {
                   </div>
 
                   {selected.error && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-4">
+                    <div className="bg-red-50 border border-red-200 rounded p-3 mt-4">
                       <p className="text-sm text-red-700 flex items-center gap-2">
                         <IoAlertCircleOutline className="w-4 h-4 shrink-0" />
                         {selected.error}
@@ -2240,59 +2314,58 @@ export default function ReportsPage() {
                 </div>
 
                 {/* Tab switcher */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="flex border-b border-gray-100">
-                    <button
-                      onClick={() => setActiveTab("report")}
-                      className={`flex-1 px-6 py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-                        activeTab === "report"
-                          ? "text-violet-700 border-b-2 border-violet-500 bg-violet-50/50"
-                          : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                      }`}
-                    >
-                      <IoDocumentTextOutline className="w-4 h-4" />
-                      Raw Report
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("ai")}
-                      className={`flex-1 px-6 py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-                        activeTab === "ai"
-                          ? "text-violet-700 border-b-2 border-violet-500 bg-violet-50/50"
-                          : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-                      }`}
-                    >
-                      <IoSparklesOutline className="w-4 h-4" />
-                      AI Analysis
-                      {aiReport && (
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                            aiReport.risk_score >= 70
-                              ? "bg-red-100 text-red-600"
-                              : aiReport.risk_score >= 40
-                                ? "bg-amber-100 text-amber-600"
-                                : "bg-green-100 text-green-600"
-                          }`}
-                        >
-                          {aiReport.risk_score}
-                        </span>
-                      )}
-                      {!aiReport && (
-                        <span className="text-[10px] font-normal bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full">
-                          New
-                        </span>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* AI Tab */}
-                  {activeTab === "ai" && (
-                    <AIAnalysisTab
-                      analysisId={selected.analysis_id}
-                      aiReport={aiReport}
-                      setAiReport={setAiReport}
-                    />
-                  )}
+                <div className="bg-white rounded-md shadow-sm border border-slate-200 overflow-hidden flex">
+                  <button
+                    onClick={() => setActiveTab("report")}
+                    className={`flex-1 px-6 py-3 text-sm font-semibold transition-colors flex items-center justify-center gap-2 border-b-2 ${
+                      activeTab === "report"
+                        ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                        : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <IoDocumentTextOutline className="w-4 h-4" />
+                    Raw Report
+                  </button>
+                  <div className="w-px bg-slate-200" />
+                  <button
+                    onClick={() => setActiveTab("ai")}
+                    className={`flex-1 px-6 py-3 text-sm font-semibold transition-colors flex items-center justify-center gap-2 border-b-2 ${
+                      activeTab === "ai"
+                        ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                        : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <IoSparklesOutline className="w-4 h-4" />
+                    AI Analysis
+                    {aiReport && (
+                      <span
+                        className={`text-[11px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+                          aiReport.risk_score >= 70
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : aiReport.risk_score >= 40
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        }`}
+                      >
+                        {aiReport.risk_score}
+                      </span>
+                    )}
+                    {!aiReport && (
+                      <span className="text-[11px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 uppercase tracking-wider">
+                        New
+                      </span>
+                    )}
+                  </button>
                 </div>
+
+                {/* AI Tab */}
+                {activeTab === "ai" && (
+                  <AIAnalysisTab
+                    analysisId={selected.analysis_id}
+                    aiReport={aiReport}
+                    setAiReport={setAiReport}
+                  />
+                )}
 
                 {/* Report sections (only when report tab active) */}
                 {activeTab === "report" && !detailLoading && rd && (
@@ -2313,11 +2386,11 @@ export default function ReportsPage() {
                       title={`Screenshots (${rd.screenshots?.length || 0})`}
                       icon={<IoImageOutline className="w-4 h-4" />}
                       count={rd.screenshots?.length || 0}
-                      color="violet"
+                      color="blue"
                     >
                       {rd.screenshots && rd.screenshots.length > 0 ? (
                         <div>
-                          <p className="text-xs text-gray-400 mb-1 mt-3">
+                          <p className="text-xs text-slate-400 mb-1 mt-3">
                             Click to open. Hover to auto-advance. Use ← → keys.
                           </p>
                           <ScreenshotGallery
@@ -2341,7 +2414,7 @@ export default function ReportsPage() {
                           ? `${rd.sysmon.sample_events} events`
                           : "no data"
                       }
-                      color="violet"
+                      color="blue"
                     >
                       {rd.sysmon ? (
                         <SysmonSection data={rd.sysmon} />
@@ -2448,10 +2521,10 @@ export default function ReportsPage() {
                             {selected.files_collected.map((file, idx) => (
                               <div
                                 key={idx}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
                               >
-                                <IoDocumentTextOutline className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                                <span className="text-gray-700 font-mono text-xs truncate">
+                                <IoDocumentTextOutline className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span className="text-slate-700 font-mono text-xs truncate">
                                   {file}
                                 </span>
                               </div>
@@ -2463,23 +2536,23 @@ export default function ReportsPage() {
                 )}
 
                 {activeTab === "report" && detailLoading && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                    <div className="animate-spin w-8 h-8 border-4 border-violet-200 border-t-violet-500 rounded-full mx-auto mb-3" />
-                    <p className="text-sm text-gray-500">
+                  <div className="bg-white rounded-md shadow-sm border border-slate-100 p-12 text-center">
+                    <div className="animate-spin w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full mx-auto mb-3" />
+                    <p className="text-sm text-slate-500">
                       Loading report data...
                     </p>
                   </div>
                 )}
               </>
             ) : (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-16 text-center">
-                <div className="w-12 h-12 mx-auto mb-4 bg-gray-100 rounded-xl flex items-center justify-center">
-                  <IoDocumentTextOutline className="w-6 h-6 text-gray-400" />
+              <div className="bg-white rounded-md shadow-sm border border-slate-100 p-16 text-center">
+                <div className="w-12 h-12 mx-auto mb-4 bg-slate-100 rounded flex items-center justify-center">
+                  <IoDocumentTextOutline className="w-6 h-6 text-slate-400" />
                 </div>
-                <p className="text-gray-500 font-medium">
+                <p className="text-slate-500 font-medium">
                   Select a report to view details
                 </p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-slate-400 mt-1">
                   Choose from the list on the left
                 </p>
               </div>

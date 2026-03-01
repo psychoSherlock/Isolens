@@ -200,6 +200,18 @@ def _clean_json_response(raw: str) -> str:
     return text
 
 
+def _write_progress(report_dir: str, progress: Dict[str, Any]) -> None:
+    """Write current AI analysis progress state to a JSON file."""
+    ai_dir = os.path.join(report_dir, "ai_analysis")
+    os.makedirs(ai_dir, exist_ok=True)
+    progress_path = os.path.join(ai_dir, "progress.json")
+    try:
+        with open(progress_path, "w", encoding="utf-8") as f:
+            json.dump(progress, f, indent=2)
+    except Exception as exc:
+        log.warning("Failed to write AI progress for %s: %s", report_dir, exc)
+
+
 def _normalize_tool_findings(items: list) -> List[Dict]:
     """Ensure per-tool findings are {severity, indicator, description}."""
     out = []
@@ -519,6 +531,14 @@ class ThreatAnalyzer:
         service = self._get_service()
         report.model = service.model
         report.status = "running"
+        
+        progress_state = {
+            "status": "running",
+            "current_action": "Initialising agents...",
+            "completed_agents": 0,
+            "total_agents": 0
+        }
+        _write_progress(report_dir, progress_state)
 
         # ── Phase 1: Per-tool analysis (parallel) ─────────────────────
         tool_responses: Dict[str, str] = {}
@@ -544,6 +564,9 @@ class ThreatAnalyzer:
             )
             try:
                 log.info("Calling agent %s …", agent_def.name)
+                progress_state["current_action"] = f"Agent {tool_name} analysing data..."
+                _write_progress(report_dir, progress_state)
+                
                 resp = await service.chat(
                     agent_name=agent_def.name,
                     prompt=prompt,
@@ -556,6 +579,10 @@ class ThreatAnalyzer:
                     "Agent %s → verdict=%s confidence=%d findings=%d",
                     agent_def.name, result.verdict, result.confidence, result.findings_count,
                 )
+                
+                progress_state["completed_agents"] += 1
+                progress_state["current_action"] = f"Agent {tool_name} analysis complete."
+                _write_progress(report_dir, progress_state)
             except Exception as exc:
                 result.error = str(exc)
                 fallback = {
@@ -602,6 +629,9 @@ class ThreatAnalyzer:
                 continue
 
             parallel_tasks.append((agent_def, tool_name, payload_text))
+
+        progress_state["total_agents"] = len(parallel_tasks) + 1 # +1 for summarizer
+        _write_progress(report_dir, progress_state)
 
         # Run all agents WITH data in parallel
         if parallel_tasks:
@@ -658,6 +688,9 @@ class ThreatAnalyzer:
 
         try:
             log.info("Calling threat-summarizer agent …")
+            progress_state["current_action"] = "Synthesizing final threat report..."
+            _write_progress(report_dir, progress_state)
+            
             resp = await service.chat(
                 agent_name="threat-summarizer",
                 prompt=summary_prompt,
@@ -670,6 +703,10 @@ class ThreatAnalyzer:
                 "Threat summary → risk=%d level=%s type=%s",
                 report.risk_score, report.threat_level, report.malware_type,
             )
+            
+            progress_state["completed_agents"] += 1
+            progress_state["current_action"] = "Finalizing report..."
+            _write_progress(report_dir, progress_state)
         except Exception as exc:
             report.error = f"Summarizer failed: {exc}"
             log.error("Threat summarizer failed: %s", exc)
@@ -677,6 +714,13 @@ class ThreatAnalyzer:
         # ── Finalize ──────────────────────────────────────────────────
         report.completed_at = datetime.datetime.utcnow().isoformat() + "Z"
         report.status = "complete" if not report.error else "failed"
+
+        progress_state["status"] = report.status
+        if report.error:
+            progress_state["current_action"] = f"Failed: {report.error}"
+        else:
+            progress_state["current_action"] = "AI Analysis Complete"
+        _write_progress(report_dir, progress_state)
 
         # Save results
         self._save_results(report_dir, report)

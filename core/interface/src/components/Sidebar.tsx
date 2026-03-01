@@ -21,7 +21,6 @@ const navItems: NavItem[] = [
   { name: "Scan", href: "/scan", icon: IoSearchOutline },
   { name: "Reports", href: "/reports", icon: IoDocumentTextOutline },
   { name: "Scan History", href: "/scan-history", icon: IoTimeOutline },
-  { name: "Sand Box", href: "/sandbox", icon: IoShieldOutline },
   { name: "Settings", href: "/settings", icon: IoSettingsOutline },
   { name: "Help & Support", href: "/help-support", icon: IoHeadsetOutline },
 ];
@@ -30,17 +29,20 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-white h-screen flex flex-col border-r border-gray-200">
+    <aside className="w-64 bg-white h-screen flex flex-col border-r border-slate-200 shadow-sm z-10">
       {/* Logo */}
-      <div className="px-6 py-6">
-        <h1 className="text-2xl font-semibold italic text-violet-600">
-          Isolens
+      <div className="px-6 py-6 flex items-center justify-start border-b border-transparent">
+        <div className="w-8 h-8 rounded bg-slate-800 text-white flex items-center justify-center mr-3 font-bold text-lg tracking-wider">
+          IS
+        </div>
+        <h1 className="text-xl font-bold tracking-tight text-slate-900">
+          IsoLens
         </h1>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4">
-        <ul className="space-y-1">
+      <nav className="flex-1 py-4">
+        <ul className="space-y-0.5">
           {navItems.map((item) => {
             const isActive = pathname === item.href || 
               (item.href === "/scan" && pathname === "/");
@@ -50,13 +52,13 @@ export default function Sidebar() {
               <li key={item.name}>
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors border-l-4 ${
                     isActive
-                      ? "bg-violet-100 text-violet-700"
-                      : "text-gray-700 hover:bg-gray-100"
+                      ? "border-blue-600 bg-blue-50/50 text-blue-700"
+                      : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
                   {item.name}
                 </Link>
               </li>
@@ -64,6 +66,11 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
+      
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-slate-100 pb-6">
+        <p className="text-xs text-slate-400 font-medium">Sandbox Version 0.1.0</p>
+      </div>
     </aside>
   );
 }

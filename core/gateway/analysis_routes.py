@@ -406,3 +406,20 @@ def get_ai_report(analysis_id: str) -> StandardResponse:
             details=f"No AI analysis has been run for {safe_id}. POST to /ai-analyze first.",
         )
     return _ok(data)
+
+
+@router.get("/report/{analysis_id}/ai-progress", response_model=StandardResponse)
+def get_ai_progress(analysis_id: str) -> StandardResponse:
+    """Retrieve the current progress of an ongoing AI analysis."""
+    safe_id = os.path.basename(analysis_id)
+    progress_path = os.path.join(DEFAULT_REPORTS_DIR, safe_id, "ai_analysis", "progress.json")
+    
+    if os.path.isfile(progress_path):
+        try:
+            with open(progress_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return _ok(data)
+        except Exception:
+            pass
+            
+    return _ok({"status": "pending", "current_action": "Waiting to start...", "completed_agents": 0, "total_agents": 0})
