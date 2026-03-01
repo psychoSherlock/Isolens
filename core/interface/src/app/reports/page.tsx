@@ -1321,16 +1321,21 @@ function SeverityBadge({ severity }: { severity: string }) {
 function AIAnalysisTab({
   analysisId,
   aiReport,
-  setAiReport,
+  aiAnalyzing,
+  aiProgress,
+  aiError,
+  handleRunAnalysis,
+  onAnimationComplete,
 }: {
   analysisId: string;
   aiReport: AIReport | null;
-  setAiReport: (r: AIReport | null) => void;
+  aiAnalyzing: boolean;
+  aiProgress: AIProgress | null;
+  aiError: string | null;
+  handleRunAnalysis: (id: string) => Promise<void>;
+  onAnimationComplete: () => void;
 }) {
-  const [analyzing, setAnalyzing] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
-  const [aiProgress, setAiProgress] = useState<AIProgress | null>(null);
 
   const handleDownloadPDF = async () => {
     if (!aiReport) return;
@@ -1342,42 +1347,8 @@ function AIAnalysisTab({
     }
   };
 
-  const handleRunAnalysis = async () => {
-    setAnalyzing(true);
-    setAiError(null);
-    setAiReport(null);
-    setAiProgress(null);
-
-    // Start progress polling
-    const progressInterval = setInterval(async () => {
-      try {
-        const pRes = await getAIProgress(analysisId);
-        if (pRes.status === "ok" && pRes.data) {
-          setAiProgress(pRes.data);
-        }
-      } catch (err) {
-        console.warn("Failed to fetch AI progress", err);
-      }
-    }, 1000);
-
-    try {
-      const resp = await runAIAnalysis(analysisId);
-      if (resp.status === "ok" && resp.data) {
-        setAiReport(resp.data as AIReport);
-      } else {
-        setAiError(resp.error?.message || "AI analysis failed");
-      }
-    } catch {
-      setAiError("Failed to connect to the AI analysis service.");
-    } finally {
-      clearInterval(progressInterval);
-      setAnalyzing(false);
-      setAiProgress(null);
-    }
-  };
-
   /* ── No report yet → CTA ── */
-  if (!aiReport && !analyzing) {
+  if (!aiReport && !aiAnalyzing) {
     return (
       <div className="p-8">
         <div className="text-center max-w-lg mx-auto">
@@ -1401,7 +1372,7 @@ function AIAnalysisTab({
             </div>
           )}
           <button
-            onClick={handleRunAnalysis}
+            onClick={() => handleRunAnalysis(analysisId)}
             className="inline-flex items-center gap-2.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white font-semibold px-8 py-3.5 rounded shadow-lg shadow-blue-200 transition-all hover:shadow-xl hover:shadow-blue-300 active:scale-[0.98]"
           >
             <IoFlashOutline className="w-5 h-5" />
@@ -1441,8 +1412,13 @@ function AIAnalysisTab({
   }
 
   /* ── Analyzing spinner ── */
-  if (analyzing) {
-    return <AIPipelineAnimation progress={aiProgress} />;
+  if (aiAnalyzing) {
+    return (
+      <AIPipelineAnimation
+        progress={aiProgress}
+        onComplete={onAnimationComplete}
+      />
+    );
   }
 
   /* ── Failed report ── */
@@ -1458,7 +1434,7 @@ function AIAnalysisTab({
             {aiReport.error || "An unknown error occurred."}
           </p>
           <button
-            onClick={handleRunAnalysis}
+            onClick={() => handleRunAnalysis(analysisId)}
             className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-6 py-2.5 rounded transition-colors"
           >
             <IoRefreshOutline className="w-4 h-4" />
@@ -1572,8 +1548,8 @@ function AIAnalysisTab({
           </div>
           <div className="mt-5 grid grid-cols-2 gap-2">
             <button
-              onClick={handleRunAnalysis}
-              disabled={analyzing}
+              onClick={() => handleRunAnalysis(analysisId)}
+              disabled={aiAnalyzing}
               className="w-full inline-flex items-center justify-center gap-2 text-[13px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2.5 rounded transition-colors"
             >
               <IoRefreshOutline className="w-4 h-4" />
@@ -1889,6 +1865,14 @@ export default function ReportsPage() {
   const [selected, setSelected] = useState<AnalysisResult | null>(null);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [aiReport, setAiReport] = useState<AIReport | null>(null);
+  // Holds the completed report while the animation countdown plays out
+  const [aiPendingReport, setAiPendingReport] = useState<AIReport | null>(null);
+  
+  // AI Tab global state to prevent reset on tab switch
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiProgress, setAiProgress] = useState<AIProgress | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  
   const [activeTab, setActiveTab] = useState<"report" | "ai">("report");
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1935,6 +1919,10 @@ export default function ReportsPage() {
     setSelected(report);
     setReportData(null);
     setAiReport(null);
+    setAiPendingReport(null);
+    setAiAnalyzing(false);
+    setAiProgress(null);
+    setAiError(null);
     setDetailLoading(true);
     setActiveTab("report");
     try {
@@ -1966,6 +1954,10 @@ export default function ReportsPage() {
         setSelected(null);
         setReportData(null);
         setAiReport(null);
+        setAiPendingReport(null);
+        setAiAnalyzing(false);
+        setAiProgress(null);
+        setAiError(null);
         setShowClearConfirm(false);
       } else {
         setError(resp.error?.message || "Failed to clear reports");
@@ -1975,6 +1967,51 @@ export default function ReportsPage() {
     } finally {
       setClearing(false);
     }
+  };
+
+  const handleRunAnalysis = async (analysisId: string) => {
+    setAiAnalyzing(true);
+    setAiError(null);
+    setAiReport(null);
+    setAiPendingReport(null);
+    setAiProgress(null);
+
+    // Start progress polling
+    const progressInterval = setInterval(async () => {
+      try {
+        const pRes = await getAIProgress(analysisId);
+        if (pRes.status === "ok" && pRes.data) {
+          setAiProgress(pRes.data);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch AI progress", err);
+      }
+    }, 1000);
+
+    try {
+      const resp = await runAIAnalysis(analysisId);
+      if (resp.status === "ok" && resp.data) {
+        // Store in pending — the animation's onComplete will move it to aiReport
+        setAiPendingReport(resp.data as AIReport);
+      } else {
+        setAiError(resp.error?.message || "AI analysis failed");
+        setAiAnalyzing(false);
+      }
+    } catch {
+      setAiError("Failed to connect to the AI analysis service.");
+      setAiAnalyzing(false);
+    } finally {
+      clearInterval(progressInterval);
+      // Do NOT clear aiAnalyzing here — the animation countdown controls that
+    }
+  };
+
+  /** Called by AIPipelineAnimation after its 3-second countdown finishes. */
+  const handleAnimationComplete = () => {
+    setAiReport(aiPendingReport);
+    setAiPendingReport(null);
+    setAiAnalyzing(false);
+    setAiProgress(null);
   };
 
   useEffect(() => {
@@ -2363,7 +2400,11 @@ export default function ReportsPage() {
                   <AIAnalysisTab
                     analysisId={selected.analysis_id}
                     aiReport={aiReport}
-                    setAiReport={setAiReport}
+                    aiAnalyzing={aiAnalyzing}
+                    aiProgress={aiProgress}
+                    aiError={aiError}
+                    handleRunAnalysis={handleRunAnalysis}
+                    onAnimationComplete={handleAnimationComplete}
                   />
                 )}
 

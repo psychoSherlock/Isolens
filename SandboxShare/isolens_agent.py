@@ -674,97 +674,6 @@ class NetworkCollector(BaseCollector):
         return out
 
 
-class FakeNetCollector(BaseCollector):
-    """Manage FakeNet-NG lifecycle and collect network artifacts.
-
-    FakeNet intercepts network traffic in SingleHost mode, simulating
-    DNS, HTTP, and other services.  Produces PCAP and HTML reports.
-    """
-
-    name = "fakenet"
-
-    _FAKENET_DIR = r"C:\IsoLens\tools\fakenet3.5"
-    _FAKENET_EXE = r"C:\IsoLens\tools\fakenet3.5\fakenet.exe"
-
-    def __init__(self, workdir: str) -> None:
-        super().__init__(workdir)
-        self._proc: Optional[subprocess.Popen] = None
-
-    def is_available(self) -> bool:
-        return os.path.isfile(self._FAKENET_EXE)
-
-    def start_capture(self) -> bool:
-        """Start FakeNet before sample execution."""
-        if not self.is_available():
-            log.warning("FakeNet not available — skipping")
-            return False
-        # Clean previous output
-        try:
-            for f in os.listdir(self._FAKENET_DIR):
-                if f.startswith(("packets_", "report_")):
-                    os.remove(os.path.join(self._FAKENET_DIR, f))
-        except Exception:
-            pass
-        try:
-            self._proc = subprocess.Popen(
-                [self._FAKENET_EXE],
-                cwd=self._FAKENET_DIR,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            log.info("FakeNet started (PID %d)", self._proc.pid)
-            time.sleep(5)  # give listeners time to start
-            return True
-        except Exception as exc:
-            log.warning("FakeNet start failed: %s", exc)
-            return False
-
-    def stop_capture(self) -> None:
-        """Stop FakeNet after sample execution."""
-        if self._proc:
-            try:
-                self._proc.terminate()
-                self._proc.wait(timeout=15)
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
-            self._proc = None
-        try:
-            subprocess.run(["taskkill", "/f", "/im", "fakenet.exe"],
-                           capture_output=True, timeout=10)
-        except Exception:
-            pass
-        time.sleep(2)
-        log.info("FakeNet stopped")
-
-    def collect(self) -> Dict[str, Any]:
-        if not self.is_available():
-            return {"collector": self.name, "status": "unavailable", "files": []}
-
-        collected: List[str] = []
-        try:
-            for fname in os.listdir(self._FAKENET_DIR):
-                if fname.startswith("packets_") and fname.endswith(".pcap"):
-                    dst = os.path.join(self.output_dir, "fakenet_capture.pcap")
-                    shutil.copy2(os.path.join(self._FAKENET_DIR, fname), dst)
-                    collected.append(dst)
-                elif fname.startswith("report_") and fname.endswith(".html"):
-                    dst = os.path.join(self.output_dir, "fakenet_report.html")
-                    shutil.copy2(os.path.join(self._FAKENET_DIR, fname), dst)
-                    collected.append(dst)
-        except FileNotFoundError:
-            log.warning("FakeNet dir not found: %s", self._FAKENET_DIR)
-            return {"collector": self.name, "status": "no_data", "files": []}
-
-        if not collected:
-            return {"collector": self.name, "status": "no_data", "files": []}
-
-        log.info("FakeNet artifacts: %d files", len(collected))
-        return {"collector": self.name, "status": "ok", "files": collected}
-
-
 class ScreenshotCollector(BaseCollector):
     """Active screenshot capture during sample execution.
 
@@ -1018,7 +927,6 @@ class IsoLensAgent:
             SysmonCollector(workdir),
             ProcmonCollector(workdir),
             NetworkCollector(workdir),
-            FakeNetCollector(workdir),
             ScreenshotCollector(workdir),
             TcpvconCollector(workdir),
             HandleCollector(workdir),
@@ -1086,7 +994,10 @@ class IsoLensAgent:
         log.info("── Execution start: %s (timeout=%ds) ──", filename, timeout)
 
         try:
-            # 0. Kill any previous instance of this sample still running
+            # 0. Cleanup previous artifacts and kill any existing instances
+            log.info("Cleaning up artifacts from previous runs...")
+            self.cleanup()
+            
             sample_basename = os.path.basename(filename)
             try:
                 subprocess.run(
@@ -1151,16 +1062,7 @@ class IsoLensAgent:
             except Exception as exc:
                 log.warning("Failed to start Procmon: %s", exc)
 
-            # 2c. Start FakeNet for network interception
-            fakenet_c = None
-            for _c in self.collectors:
-                if _c.name == "fakenet" and hasattr(_c, "start_capture"):
-                    fakenet_c = _c
-                    break
-            if fakenet_c:
-                fakenet_c.start_capture()
-
-            # 2d. Start tshark for packet capture
+            # 2c. Start tshark for packet capture
             network_c = None
             for _c in self.collectors:
                 if _c.name == "network" and hasattr(_c, "start_capture"):
@@ -1244,8 +1146,6 @@ class IsoLensAgent:
                 screenshot_c.stop_capture()
             if network_c:
                 network_c.stop_capture()
-            if fakenet_c:
-                fakenet_c.stop_capture()
 
             # 5. Collect artifacts (sample-filtered)
             self.state.set_collecting()

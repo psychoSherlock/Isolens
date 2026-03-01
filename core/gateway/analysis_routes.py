@@ -35,6 +35,7 @@ from core.controller.sandbox_orchestrator import (
     AgentConfig,
     SandboxOrchestrator,
     DEFAULT_REPORTS_DIR,
+    DEFAULT_SAMPLES_DIR,
 )
 from core.gateway.api_models import StandardResponse
 
@@ -272,9 +273,19 @@ def clear_all_reports():
                 except Exception:
                     pass
 
+    # Remove archived samples
+    if os.path.isdir(DEFAULT_SAMPLES_DIR):
+        for f in os.listdir(DEFAULT_SAMPLES_DIR):
+            fpath = os.path.join(DEFAULT_SAMPLES_DIR, f)
+            if os.path.isfile(fpath):
+                try:
+                    os.remove(fpath)
+                except Exception as exc:
+                    errors.append(f"sample {f}: {exc}")
+
     # Reset the orchestrator's current analysis reference
     orch = _get_orchestrator()
-    orch.current_analysis = None
+    orch._current = None
 
     if errors:
         return _error(

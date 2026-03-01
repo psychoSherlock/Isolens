@@ -994,7 +994,10 @@ class IsoLensAgent:
         log.info("── Execution start: %s (timeout=%ds) ──", filename, timeout)
 
         try:
-            # 0. Kill any previous instance of this sample still running
+            # 0. Cleanup previous artifacts and kill any existing instances
+            log.info("Cleaning up artifacts from previous runs...")
+            self.cleanup()
+            
             sample_basename = os.path.basename(filename)
             try:
                 subprocess.run(

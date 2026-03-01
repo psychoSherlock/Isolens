@@ -1,13 +1,18 @@
-import React from "react";
+"use client";
+
+import React, { useEffect, useState } from "react";
 import {
   IoServerOutline,
   IoHardwareChipOutline,
   IoGlobeOutline,
   IoDocumentTextOutline,
   IoAnalyticsOutline,
-  IoShieldCheckmarkOutline,
   IoSparklesOutline,
+  IoShieldCheckmarkOutline,
+  IoCheckmarkCircle,
 } from "react-icons/io5";
+
+/* ─── Props ─────────────────────────────────────────────────────── */
 
 interface AIPipelineAnimationProps {
   progress?: {
@@ -15,199 +20,606 @@ interface AIPipelineAnimationProps {
     completed_agents: number;
     total_agents: number;
   } | null;
+  onComplete?: () => void;
 }
 
-export default function AIPipelineAnimation({ progress }: AIPipelineAnimationProps) {
-  // Agents definition
-  const agents = [
-    { id: "sysmon", label: "Sysmon Agent", icon: IoServerOutline, color: "text-blue-500", bg: "bg-blue-50" },
-    { id: "procmon", label: "Procmon Agent", icon: IoHardwareChipOutline, color: "text-indigo-500", bg: "bg-indigo-50" },
-    { id: "network", label: "Network Agent", icon: IoGlobeOutline, color: "text-sky-500", bg: "bg-sky-50" },
-    { id: "handle", label: "Handle Agent", icon: IoDocumentTextOutline, color: "text-violet-500", bg: "bg-violet-50" },
-    { id: "tcp", label: "TCP Agent", icon: IoAnalyticsOutline, color: "text-purple-500", bg: "bg-purple-50" },
-  ];
+/* ─── Agent config ──────────────────────────────────────────────── */
 
-  const pct = progress ? Math.round((progress.completed_agents / Math.max(1, progress.total_agents)) * 100) : 0;
-  
-  // Calculate if we're in the summarizer phase
-  const isSummarizing = progress?.current_action?.toLowerCase().includes("summariz");
+const AGENTS = [
+  { id: "sysmon",  label: "Sysmon Analyzer",   sub: "Process & event logs",    Icon: IoServerOutline,      color: "#3b82f6" },
+  { id: "procmon", label: "Procmon Analyzer",   sub: "File & registry ops",     Icon: IoHardwareChipOutline, color: "#6366f1" },
+  { id: "network", label: "Network Analyzer",   sub: "Traffic & C2 detection",  Icon: IoGlobeOutline,        color: "#0ea5e9" },
+  { id: "handle",  label: "Handle Analyzer",    sub: "Mutex & file handles",    Icon: IoDocumentTextOutline, color: "#8b5cf6" },
+  { id: "tcpvcon", label: "TCPVcon Analyzer",   sub: "Active connections",      Icon: IoAnalyticsOutline,    color: "#a855f7" },
+];
+
+/* ─── SVG layout ────────────────────────────────────────────────── */
+
+const VW = 1000;
+const VH = 600;
+
+// Agent nodes
+const AGENT_CX  = 95;    // x-centre of agent circles
+const AGENT_R   = 30;    // radius — bigger than before
+
+// Central summariser
+const CENTER_CX = 490;
+const CENTER_CY = VH / 2;  // 300
+const CENTER_R  = 52;
+
+// Report node (right)
+const REPORT_CX = 880;
+const REPORT_CY = CENTER_CY;
+const REPORT_R  = 38;
+
+// Distribute 5 agents evenly across full height
+const AGENT_CYS = AGENTS.map((_, i) => {
+  const spacing = VH / (AGENTS.length + 1);
+  return Math.round(spacing * (i + 1));
+});
+
+// Bezier from agent right-edge → summariser left-edge (smooth S curve)
+const agentPath = (ay: number) =>
+  `M ${AGENT_CX + AGENT_R} ${ay} ` +
+  `C ${AGENT_CX + AGENT_R + 120} ${ay}, ` +
+  `${CENTER_CX - CENTER_R - 120} ${CENTER_CY}, ` +
+  `${CENTER_CX - CENTER_R} ${CENTER_CY}`;
+
+// Horizontal bezier from summariser right-edge → report left-edge  
+const reportPath =
+  `M ${CENTER_CX + CENTER_R} ${CENTER_CY} ` +
+  `C ${CENTER_CX + CENTER_R + 90} ${CENTER_CY}, ` +
+  `${REPORT_CX - REPORT_R - 90} ${REPORT_CY}, ` +
+  `${REPORT_CX - REPORT_R} ${REPORT_CY}`;
+
+/* ─── Component ─────────────────────────────────────────────────── */
+
+export default function AIPipelineAnimation({
+  progress,
+  onComplete,
+}: AIPipelineAnimationProps) {
+  const completedAgents = progress?.completed_agents ?? 0;
+  const totalAgents     = progress?.total_agents     ?? 6;
+
+  // drawnLines[i] = true only after agent i has responded (completedAgents > i)
+  const [drawnLines, setDrawnLines] = useState<boolean[]>(
+    Array(AGENTS.length).fill(false)
+  );
+
+  // Track which line draw animation has started (prevents re-triggering)
+  const [lineKeys, setLineKeys] = useState<number[]>(
+    Array(AGENTS.length).fill(0)
+  );
+
+  const [summarizerActive,  setSummarizerActive]  = useState(false);
+  const [summarizerDone,    setSummarizerDone]     = useState(false);
+
+  // reportLineDraw: the center→report line is animating
+  const [reportLineDraw, setReportLineDraw] = useState(false);
+  // reportNodeLit: report node lights up after line has drawn
+  const [reportNodeLit,  setReportNodeLit]  = useState(false);
+  // countdown before onComplete fires
+  const [countdown, setCountdown]           = useState<number | null>(null);
+
+  /* ── Drive paths from backend progress only ── */
+  useEffect(() => {
+    setDrawnLines((prev) =>
+      prev.map((drawn, i) => {
+        const shouldDraw = completedAgents > i;
+        if (shouldDraw && !drawn) {
+          // bump the key to force CSS animation restart
+          setLineKeys((k) => {
+            const next = [...k];
+            next[i] = k[i] + 1;
+            return next;
+          });
+        }
+        return drawn || shouldDraw;
+      })
+    );
+
+    if (completedAgents >= 5) setSummarizerActive(true);
+
+    if (completedAgents >= totalAgents && totalAgents > 0) {
+      setSummarizerDone(true);
+    }
+  }, [completedAgents, totalAgents]);
+
+  /* ── After summariser done → draw center→report line → countdown ── */
+  useEffect(() => {
+    if (!summarizerDone) return;
+
+    // Small delay let summariser lights settle, then start line draw
+    const lineDelay = setTimeout(() => {
+      setReportLineDraw(true);
+
+      // After the line draw animation finishes (1.2s), light up report node
+      const litDelay = setTimeout(() => {
+        setReportNodeLit(true);
+
+        // Then start 3-second countdown
+        let n = 3;
+        setCountdown(n);
+        const iv = setInterval(() => {
+          n -= 1;
+          if (n <= 0) {
+            clearInterval(iv);
+            setCountdown(null);
+            onComplete?.();
+          } else {
+            setCountdown(n);
+          }
+        }, 1000);
+
+        return () => clearInterval(iv);
+      }, 1300); // wait for line draw to complete
+
+      return () => clearTimeout(litDelay);
+    }, 500);
+
+    return () => clearTimeout(lineDelay);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summarizerDone]);
+
+  const pct = totalAgents > 0 ? Math.round((completedAgents / totalAgents) * 100) : 0;
+  const isSummarizingActive = summarizerActive && !summarizerDone;
 
   return (
-    <div className="flex flex-col items-center justify-center p-8 bg-white rounded-lg border border-slate-200 mt-6 relative overflow-hidden min-h-[500px] shadow-sm">
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-blue-50/30"></div>
+    <div className="flex flex-col items-center bg-white rounded-xl border border-slate-200 shadow-sm mt-6 overflow-hidden">
+      {/* ── Inline CSS ── */}
+      <style>{`
+        @keyframes drawPath {
+          from { stroke-dashoffset: 1; }
+          to   { stroke-dashoffset: 0; }
+        }
+        @keyframes particleFlow {
+          from { stroke-dashoffset: 0; }
+          to   { stroke-dashoffset: -1; }
+        }
+        @keyframes pingRing {
+          0%        { transform: scale(1);   opacity: 0.65; }
+          70%, 100% { transform: scale(1.8); opacity: 0; }
+        }
+        @keyframes spinSlow {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        .ai-draw {
+          stroke-dasharray: 1;
+          stroke-dashoffset: 1;
+          pathLength: 1;
+          animation: drawPath 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+        .ai-flow {
+          stroke-dasharray: 0.07 0.10;
+          stroke-dashoffset: 0;
+          pathLength: 1;
+          animation: particleFlow 1.6s linear infinite;
+        }
+        .ai-ping {
+          transform-origin: center;
+          animation: pingRing 2s ease-out infinite;
+        }
+        .ai-spin {
+          transform-origin: center;
+          animation: spinSlow 4s linear infinite;
+        }
+      `}</style>
 
-      {/* Header */}
-      <div className="relative z-10 text-center mb-10">
-        <h3 className="text-xl font-black text-slate-800 tracking-tight mb-2 flex items-center justify-center gap-2">
-          <IoSparklesOutline className="w-5 h-5 text-blue-500 animate-[pulse_2s_ease-in-out_infinite]" />
-          AI Threat Pipeline Active
-        </h3>
-        <p className="text-sm font-medium text-slate-500">
-          {progress?.current_action || "Initializing AI Agents..."}
+      {/* ── Header ── */}
+      <div className="w-full px-8 pt-5 pb-3 border-b border-slate-100 text-center">
+        <div className="flex items-center justify-center gap-2 mb-0.5">
+          <IoSparklesOutline className="w-4 h-4 text-blue-500" />
+          <h3 className="text-sm font-black text-slate-800 tracking-tight">
+            {summarizerDone
+              ? "Pipeline Complete"
+              : isSummarizingActive
+              ? "Synthesizing Threat Report"
+              : "AI Threat Pipeline Active"}
+          </h3>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          {progress?.current_action || "Initializing AI Agents…"}
         </p>
       </div>
 
-      {/* Pipeline Visualization */}
-      <div className="relative z-10 w-full max-w-4xl flex items-center justify-between px-4 lg:px-12 h-64">
-        
-        {/* SVG Data Flows (Background layer) */}
-        <div className="absolute inset-0 pointer-events-none">
-          <svg className="w-full h-full" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.2" />
-                <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.6" />
-                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.2" />
+      {/* ── SVG ── */}
+      <div className="w-full px-3 py-2">
+        <svg
+          viewBox={`0 0 ${VW} ${VH}`}
+          className="w-full"
+          style={{ maxHeight: 420 }}
+          preserveAspectRatio="xMidYMid meet"
+        >
+          <defs>
+            {AGENTS.map((a) => (
+              <linearGradient key={`g-${a.id}`} id={`g-${a.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor={a.color} stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#a855f7" stopOpacity="0.9" />
               </linearGradient>
-              
-              {/* Particle animation definition */}
-              <style>
-                {`
-                  .particle-flow {
-                    stroke-dasharray: 10 20;
-                    animation: flow 1.5s linear infinite;
-                  }
-                  .particle-flow-slow {
-                    stroke-dasharray: 15 30;
-                    animation: flow 2s linear infinite;
-                  }
-                  @keyframes flow {
-                    to {
-                      stroke-dashoffset: -30;
-                    }
-                  }
-                  
-                  .pulse-glow {
-                    animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite;
-                  }
-                  @keyframes ping-slow {
-                    75%, 100% {
-                      transform: scale(1.5);
-                      opacity: 0;
-                    }
-                  }
-                `}
-              </style>
-            </defs>
-
-            {/* Connecting lines from 5 agents to Summarizer */}
-            {[10, 30, 50, 70, 90].map((yPct, i) => (
-              <g key={`flow-${i}`}>
-                {/* Static track */}
-                <path
-                  d={`M 20% ${yPct}% C 40% ${yPct}%, 50% 50%, 75% 50%`}
-                  fill="none"
-                  stroke="#e2e8f0"
-                  strokeWidth="2"
-                  className="transition-colors duration-500"
-                />
-                
-                {/* Flowing particles (only fast before summarizing) */}
-                <path
-                  d={`M 20% ${yPct}% C 40% ${yPct}%, 50% 50%, 75% 50%`}
-                  fill="none"
-                  stroke="url(#flow-gradient)"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  className={isSummarizing ? "particle-flow-slow opacity-30" : "particle-flow"}
-                  style={{ animationDelay: `${i * 0.2}s` }}
-                />
-              </g>
             ))}
-          </svg>
-        </div>
+            <linearGradient id="g-report" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#a855f7" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#22c55e" stopOpacity="0.9" />
+            </linearGradient>
+            <filter id="glow">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="b" />
+              <feMerge>
+                <feMergeNode in="b" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
 
-        {/* 1. Left Column: Specialized Agents */}
-        <div className="relative flex flex-col justify-between h-full w-1/4 z-10">
-          {agents.map((agent, i) => {
-            const Icon = agent.icon;
-            // Highlight agent if completed
-            const isDone = progress && progress.completed_agents > i;
-            
+          {/* ── 5 Agent nodes + paths ── */}
+          {AGENTS.map((agent, i) => {
+            const Icon  = agent.Icon;
+            const ay    = AGENT_CYS[i];
+            const drawn = drawnLines[i];
+
+            // active = this is the next agent to respond (in front of the queue)
+            const isActive = !drawn && completedAgents === i;
+
             return (
-              <div key={agent.id} className="flex items-center gap-3 relative group">
-                {/* Node */}
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border-2 transition-all duration-500 shadow-sm relative bg-white
-                  ${isDone ? "border-green-400" : (isSummarizing ? "border-slate-200" : "border-blue-400")}
-                `}>
-                  {/* Pulse ring when active */}
-                  {!isDone && !isSummarizing && (
-                     <div className="absolute inset-0 rounded-full border-2 border-blue-400 opacity-50 pulse-glow"></div>
-                  )}
-                  
-                  <Icon className={`w-5 h-5 transition-colors ${isDone ? "text-green-500" : (isSummarizing ? "text-slate-400" : agent.color)}`} />
-                </div>
-                
-                {/* Label */}
-                <span className={`text-[11px] font-bold uppercase tracking-wider transition-colors
-                  ${isDone ? "text-green-600" : (isSummarizing ? "text-slate-400" : "text-slate-700")}
-                `}>
+              <g key={agent.id}>
+                {/* Track (unlit path) */}
+                <path
+                  d={agentPath(ay)}
+                  fill="none"
+                  stroke="#f1f5f9"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                />
+
+                {/* Lit path — only after agent responds */}
+                {drawn && (
+                  <>
+                    <path
+                      key={`draw-${agent.id}-${lineKeys[i]}`}
+                      d={agentPath(ay)}
+                      fill="none"
+                      stroke={`url(#g-${agent.id})`}
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      pathLength="1"
+                      className="ai-draw"
+                      filter="url(#glow)"
+                    />
+                    {/* Flowing particles while summariser is working */}
+                    {isSummarizingActive && (
+                      <path
+                        d={agentPath(ay)}
+                        fill="none"
+                        stroke={`url(#g-${agent.id})`}
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                        strokeOpacity="0.4"
+                        pathLength="1"
+                        className="ai-flow"
+                        style={{ animationDelay: `${i * 0.2}s` }}
+                      />
+                    )}
+                  </>
+                )}
+
+                {/* Ping ring while this agent is active */}
+                {isActive && (
+                  <circle
+                    cx={AGENT_CX}
+                    cy={ay}
+                    r={AGENT_R}
+                    fill="none"
+                    stroke={agent.color}
+                    strokeWidth="2"
+                    strokeOpacity="0.45"
+                    className="ai-ping"
+                  />
+                )}
+
+                {/* Agent circle */}
+                <circle
+                  cx={AGENT_CX}
+                  cy={ay}
+                  r={AGENT_R}
+                  fill="white"
+                  stroke={drawn ? agent.color : isActive ? agent.color : "#e2e8f0"}
+                  strokeWidth="2.5"
+                  style={{ transition: "stroke 0.5s ease" }}
+                />
+
+                {/* Icon (foreignObject so we can use React icons at proper size) */}
+                <foreignObject
+                  x={AGENT_CX - 14}
+                  y={ay - 14}
+                  width={28}
+                  height={28}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "100%",
+                      height: "100%",
+                    }}
+                  >
+                    {drawn ? (
+                      <IoCheckmarkCircle
+                        style={{ width: 20, height: 20, color: agent.color }}
+                      />
+                    ) : (
+                      <Icon
+                        style={{
+                          width: 18,
+                          height: 18,
+                          color: isActive ? agent.color : "#cbd5e1",
+                          transition: "color 0.4s ease",
+                        }}
+                      />
+                    )}
+                  </div>
+                </foreignObject>
+
+                {/* Labels */}
+                <text
+                  x={AGENT_CX + AGENT_R + 12}
+                  y={ay - 5}
+                  fontSize="12"
+                  fontWeight="700"
+                  fill={drawn ? "#1e293b" : isActive ? "#1e293b" : "#94a3b8"}
+                  style={{ transition: "fill 0.4s ease" }}
+                >
                   {agent.label}
-                </span>
-              </div>
+                </text>
+                <text
+                  x={AGENT_CX + AGENT_R + 12}
+                  y={ay + 11}
+                  fontSize="10"
+                  fill={drawn || isActive ? "#64748b" : "#cbd5e1"}
+                  style={{ transition: "fill 0.4s ease" }}
+                >
+                  {agent.sub}
+                </text>
+              </g>
             );
           })}
-        </div>
 
-        {/* 2. Middle Column: Threat Summarizer */}
-        <div className="relative flex flex-col items-center justify-center w-2/4 z-10">
-          <div className="relative flex flex-col items-center">
-            
-            <div className={`w-20 h-20 rounded-full flex items-center justify-center border-4 shadow-lg transition-all duration-700 bg-white relative z-10
-              ${isSummarizing ? "border-purple-500 scale-110" : "border-slate-200 scale-100"}
-            `}>
-              {/* Massive active pulse when summarizing */}
-              {isSummarizing && (
-                <>
-                  <div className="absolute inset-0 rounded-full border-4 border-purple-400 opacity-60 pulse-glow"></div>
-                  <div className="absolute inset-0 rounded-full bg-purple-100 opacity-40 animate-pulse"></div>
-                </>
+          {/* ── Center → Report track (always visible) ── */}
+          <path
+            d={reportPath}
+            fill="none"
+            stroke="#f1f5f9"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+
+          {/* Center → Report lit path (animates after summariser done) */}
+          {reportLineDraw && (
+            <>
+              <path
+                d={reportPath}
+                fill="none"
+                stroke="url(#g-report)"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                pathLength="1"
+                className="ai-draw"
+                filter="url(#glow)"
+              />
+              {reportNodeLit && (
+                <path
+                  d={reportPath}
+                  fill="none"
+                  stroke="url(#g-report)"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeOpacity="0.4"
+                  pathLength="1"
+                  className="ai-flow"
+                />
               )}
-              
-              <IoSparklesOutline className={`w-10 h-10 transition-colors duration-700 ${isSummarizing ? "text-purple-600 animate-spin-slow" : "text-slate-400"}`} />
-            </div>
-            
-            <div className="mt-4 text-center">
-              <span className={`text-sm font-black uppercase tracking-widest transition-colors ${isSummarizing ? "text-purple-700" : "text-slate-500"}`}>
-                Threat Summarizer
-              </span>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Main Agent</p>
-            </div>
-          </div>
-        </div>
+            </>
+          )}
 
-        {/* 3. Right Column: Output Report */}
-        <div className="relative flex flex-col items-center justify-center w-1/4 z-10">
-          <div className={`w-14 h-14 rounded-xl flex items-center justify-center border-2 transition-all duration-700 shadow-md bg-white
-            ${pct === 100 ? "border-blue-500 scale-110 shadow-blue-200" : "border-slate-200 opacity-60"}
-          `}>
-            <IoShieldCheckmarkOutline className={`w-7 h-7 ${pct === 100 ? "text-blue-500" : "text-slate-300"}`} />
-          </div>
-          <span className={`text-xs font-bold uppercase mt-3 transition-colors ${pct === 100 ? "text-blue-600" : "text-slate-400"}`}>
-            Final Report
-          </span>
-        </div>
+          {/* ── Central Summariser ── */}
+          <g>
+            {summarizerActive && (
+              <circle
+                cx={CENTER_CX}
+                cy={CENTER_CY}
+                r={CENTER_R + 12}
+                fill="none"
+                stroke={summarizerDone ? "#22c55e" : "#a855f7"}
+                strokeWidth="1.5"
+                strokeOpacity="0.18"
+                className="ai-ping"
+              />
+            )}
 
+            <circle
+              cx={CENTER_CX}
+              cy={CENTER_CY}
+              r={CENTER_R}
+              fill="white"
+              stroke={
+                summarizerDone
+                  ? "#22c55e"
+                  : isSummarizingActive
+                  ? "#a855f7"
+                  : "#e2e8f0"
+              }
+              strokeWidth="2.5"
+              filter={summarizerActive ? "url(#glow)" : undefined}
+              style={{ transition: "stroke 0.7s ease" }}
+            />
+
+            <foreignObject
+              x={CENTER_CX - 20}
+              y={CENTER_CY - 20}
+              width={40}
+              height={40}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "100%",
+                  height: "100%",
+                }}
+              >
+                <IoSparklesOutline
+                  style={{
+                    width: 30,
+                    height: 30,
+                    color: summarizerDone
+                      ? "#22c55e"
+                      : isSummarizingActive
+                      ? "#a855f7"
+                      : "#cbd5e1",
+                    transition: "color 0.6s ease",
+                    animation: isSummarizingActive
+                      ? "spinSlow 4s linear infinite"
+                      : "none",
+                  }}
+                />
+              </div>
+            </foreignObject>
+
+            <text
+              x={CENTER_CX}
+              y={CENTER_CY + CENTER_R + 16}
+              textAnchor="middle"
+              fontSize="11"
+              fontWeight="800"
+              fill={summarizerDone ? "#16a34a" : isSummarizingActive ? "#7c3aed" : "#94a3b8"}
+              letterSpacing="1"
+              style={{ transition: "fill 0.6s ease" }}
+            >
+              THREAT SUMMARIZER
+            </text>
+            <text
+              x={CENTER_CX}
+              y={CENTER_CY + CENTER_R + 30}
+              textAnchor="middle"
+              fontSize="9.5"
+              fill={isSummarizingActive ? "#a78bfa" : "#94a3b8"}
+              style={{ transition: "fill 0.6s ease" }}
+            >
+              {summarizerDone
+                ? "Analysis complete"
+                : isSummarizingActive
+                ? "Aggregating findings…"
+                : "Awaiting agent data"}
+            </text>
+          </g>
+
+          {/* ── Report Node ── */}
+          <g>
+            {reportNodeLit && (
+              <circle
+                cx={REPORT_CX}
+                cy={REPORT_CY}
+                r={REPORT_R + 12}
+                fill="none"
+                stroke="#22c55e"
+                strokeWidth="1.5"
+                strokeOpacity="0.18"
+                className="ai-ping"
+              />
+            )}
+
+            <circle
+              cx={REPORT_CX}
+              cy={REPORT_CY}
+              r={REPORT_R}
+              fill="white"
+              stroke={reportNodeLit ? "#22c55e" : "#e2e8f0"}
+              strokeWidth="2.5"
+              filter={reportNodeLit ? "url(#glow)" : undefined}
+              style={{ transition: "stroke 0.8s ease" }}
+            />
+
+            <foreignObject
+              x={REPORT_CX - 17}
+              y={REPORT_CY - 17}
+              width={34}
+              height={34}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "100%",
+                  height: "100%",
+                }}
+              >
+                <IoShieldCheckmarkOutline
+                  style={{
+                    width: 24,
+                    height: 24,
+                    color: reportNodeLit ? "#22c55e" : "#cbd5e1",
+                    transition: "color 0.6s ease",
+                  }}
+                />
+              </div>
+            </foreignObject>
+
+            {/* Countdown displayed inside the report node */}
+            {countdown !== null && (
+              <text
+                x={REPORT_CX}
+                y={REPORT_CY + 8}
+                textAnchor="middle"
+                fontSize="26"
+                fontWeight="900"
+                fill="#16a34a"
+              >
+                {countdown}
+              </text>
+            )}
+
+            <text
+              x={REPORT_CX}
+              y={REPORT_CY + REPORT_R + 16}
+              textAnchor="middle"
+              fontSize="11"
+              fontWeight="800"
+              fill={reportNodeLit ? "#16a34a" : "#94a3b8"}
+              letterSpacing="1"
+              style={{ transition: "fill 0.6s ease" }}
+            >
+              FINAL REPORT
+            </text>
+          </g>
+        </svg>
       </div>
 
-      {/* Overall Progress Bar Footer */}
-      <div className="relative z-10 w-full max-w-lg mt-10">
-        <div className="flex justify-between items-end mb-2">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+      {/* ── Progress bar ── */}
+      <div className="w-full px-8 pb-5">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
             Pipeline Progress
           </span>
-          <span className="text-[11px] font-black font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+          <span className="text-[10px] font-black font-mono text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
             {pct}%
           </span>
         </div>
-        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-          <div 
-            className="h-full bg-slate-800 transition-all duration-500 ease-out"
-            style={{ width: `${pct || 5}%` }}
-          />
+        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-700 ease-out relative"
+            style={{
+              width: `${Math.max(pct, 3)}%`,
+              background: summarizerDone
+                ? "linear-gradient(90deg,#22c55e,#16a34a)"
+                : "linear-gradient(90deg,#3b82f6,#a855f7)",
+            }}
+          >
+            <div className="absolute inset-0 bg-white/20 animate-pulse" />
+          </div>
         </div>
       </div>
-
     </div>
   );
 }
