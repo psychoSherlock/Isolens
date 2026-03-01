@@ -29,6 +29,17 @@ import {
   IoWarningOutline,
   IoInformationCircleOutline,
   IoSwapHorizontalOutline,
+  IoSearchOutline,
+  IoFlashOutline,
+  IoShieldOutline,
+  IoFingerPrintOutline,
+  IoAnalyticsOutline,
+  IoCodeSlashOutline,
+  IoRadioButtonOnOutline,
+  IoEllipseOutline,
+  IoSkullOutline,
+  IoLockClosedOutline,
+  IoArrowForwardOutline,
 } from "react-icons/io5";
 import {
   getAnalysisStatus,
@@ -36,12 +47,20 @@ import {
   clearAllReports,
   screenshotURL,
   getReportData,
+  getAIReport,
+  runAIAnalysis,
   type AnalysisResult,
   type ReportData,
   type SysmonData,
   type ProcmonData,
   type NetworkData,
   type TcpvconRow,
+  type AIReport,
+  type AIToolResult,
+  type AIFinding,
+  type AIIOC,
+  type AIMitreTechnique,
+  type AIRecommendation,
 } from "@/lib/api";
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1078,6 +1097,716 @@ function CollectorBadges({
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   RISK SCORE GAUGE (SVG circle)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function RiskGauge({ score, level }: { score: number; level: string }) {
+  const r = 56;
+  const c = 2 * Math.PI * r;
+  const pct = Math.min(score, 100) / 100;
+  const offset = c * (1 - pct);
+  const color =
+    score >= 80
+      ? "#ef4444"
+      : score >= 60
+        ? "#f97316"
+        : score >= 40
+          ? "#eab308"
+          : score >= 20
+            ? "#22c55e"
+            : "#6b7280";
+  const bgRing =
+    score >= 80
+      ? "#fef2f2"
+      : score >= 60
+        ? "#fff7ed"
+        : score >= 40
+          ? "#fefce8"
+          : score >= 20
+            ? "#f0fdf4"
+            : "#f9fafb";
+
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative w-36 h-36">
+        <svg viewBox="0 0 128 128" className="w-full h-full -rotate-90">
+          <circle
+            cx="64"
+            cy="64"
+            r={r}
+            fill="none"
+            stroke={bgRing}
+            strokeWidth="10"
+          />
+          <circle
+            cx="64"
+            cy="64"
+            r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+            className="transition-all duration-1000 ease-out"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-3xl font-black" style={{ color }}>
+            {score}
+          </span>
+          <span className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">
+            / 100
+          </span>
+        </div>
+      </div>
+      <span
+        className="mt-2 text-sm font-bold uppercase tracking-wider"
+        style={{ color }}
+      >
+        {level}
+      </span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AI VERDICT BADGE (per-tool)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const v = verdict.toLowerCase();
+  const cls =
+    v === "malicious"
+      ? "bg-red-100 text-red-700 border-red-200"
+      : v === "suspicious"
+        ? "bg-amber-100 text-amber-700 border-amber-200"
+        : v === "benign"
+          ? "bg-green-100 text-green-700 border-green-200"
+          : "bg-gray-100 text-gray-600 border-gray-200";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-bold uppercase ${cls}`}
+    >
+      {v === "malicious" && <IoSkullOutline className="w-3 h-3" />}
+      {v === "suspicious" && <IoWarningOutline className="w-3 h-3" />}
+      {v === "benign" && <IoCheckmarkCircleOutline className="w-3 h-3" />}
+      {v === "inconclusive" && <IoEllipseOutline className="w-3 h-3" />}
+      {verdict}
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SEVERITY BADGE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function SeverityBadge({ severity }: { severity: string }) {
+  const s = severity.toLowerCase();
+  const cls =
+    s === "critical"
+      ? "bg-red-600 text-white"
+      : s === "high"
+        ? "bg-red-100 text-red-700"
+        : s === "medium"
+          ? "bg-amber-100 text-amber-700"
+          : s === "low"
+            ? "bg-blue-100 text-blue-700"
+            : "bg-gray-100 text-gray-600";
+  return (
+    <span
+      className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${cls}`}
+    >
+      {severity}
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AI ANALYSIS TAB CONTENT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function AIAnalysisTab({
+  analysisId,
+  aiReport,
+  setAiReport,
+}: {
+  analysisId: string;
+  aiReport: AIReport | null;
+  setAiReport: (r: AIReport | null) => void;
+}) {
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [expandedTool, setExpandedTool] = useState<string | null>(null);
+
+  const handleRunAnalysis = async () => {
+    setAnalyzing(true);
+    setAiError(null);
+    try {
+      const resp = await runAIAnalysis(analysisId);
+      if (resp.status === "ok" && resp.data) {
+        setAiReport(resp.data as AIReport);
+      } else {
+        setAiError(resp.error?.message || "AI analysis failed");
+      }
+    } catch {
+      setAiError("Failed to connect to the AI analysis service.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  /* ── No report yet → CTA ── */
+  if (!aiReport && !analyzing) {
+    return (
+      <div className="p-8">
+        <div className="text-center max-w-lg mx-auto">
+          <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-violet-100 to-purple-200 rounded-2xl flex items-center justify-center shadow-inner">
+            <IoSparklesOutline className="w-10 h-10 text-violet-600" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">
+            AI Threat Analysis
+          </h3>
+          <p className="text-gray-500 mb-6 text-sm leading-relaxed">
+            Run multi-agent AI analysis powered by <strong>GPT-5 Mini</strong>.
+            The pipeline dispatches data to 6 specialized agents (Sysmon,
+            Procmon, Network, Handle, TCPVcon, Metadata) then synthesizes a
+            final threat report with risk scoring, MITRE ATT&CK mapping, and IOC
+            extraction.
+          </p>
+          {aiError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-sm text-red-700 flex items-center gap-2">
+              <IoAlertCircleOutline className="w-4 h-4 shrink-0" />
+              {aiError}
+            </div>
+          )}
+          <button
+            onClick={handleRunAnalysis}
+            className="inline-flex items-center gap-2.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold px-8 py-3.5 rounded-xl shadow-lg shadow-violet-200 transition-all hover:shadow-xl hover:shadow-violet-300 active:scale-[0.98]"
+          >
+            <IoFlashOutline className="w-5 h-5" />
+            Run AI Analysis
+          </button>
+          <div className="mt-8 grid grid-cols-3 gap-3 opacity-60">
+            {[
+              {
+                label: "Risk Scoring",
+                icon: <IoAnalyticsOutline className="w-5 h-5" />,
+              },
+              {
+                label: "MITRE ATT&CK",
+                icon: <IoShieldOutline className="w-5 h-5" />,
+              },
+              {
+                label: "IOC Extraction",
+                icon: <IoFingerPrintOutline className="w-5 h-5" />,
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center"
+              >
+                <div className="flex justify-center text-gray-400 mb-1">
+                  {item.icon}
+                </div>
+                <p className="text-xs text-gray-500 font-medium">
+                  {item.label}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Analyzing spinner ── */
+  if (analyzing) {
+    return (
+      <div className="p-12 text-center">
+        <div className="relative w-20 h-20 mx-auto mb-6">
+          <div className="absolute inset-0 animate-spin rounded-full border-4 border-violet-200 border-t-violet-600" />
+          <div
+            className="absolute inset-3 animate-spin rounded-full border-4 border-purple-200 border-b-purple-600"
+            style={{
+              animationDirection: "reverse",
+              animationDuration: "1.5s",
+            }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <IoSparklesOutline className="w-6 h-6 text-violet-500 animate-pulse" />
+          </div>
+        </div>
+        <h3 className="text-lg font-bold text-gray-900 mb-1">
+          Analyzing with AI Agents…
+        </h3>
+        <p className="text-sm text-gray-500">
+          Running 6 specialized agents + threat summarizer. This may take 30–90
+          seconds.
+        </p>
+      </div>
+    );
+  }
+
+  /* ── Failed report ── */
+  if (aiReport && aiReport.status === "failed") {
+    return (
+      <div className="p-8">
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+          <IoAlertCircleOutline className="w-10 h-10 text-red-400 mx-auto mb-3" />
+          <h3 className="text-lg font-bold text-red-800 mb-1">
+            Analysis Failed
+          </h3>
+          <p className="text-sm text-red-600 mb-4">
+            {aiReport.error || "An unknown error occurred."}
+          </p>
+          <button
+            onClick={handleRunAnalysis}
+            className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium px-6 py-2.5 rounded-xl transition-colors"
+          >
+            <IoRefreshOutline className="w-4 h-4" />
+            Retry Analysis
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!aiReport) return null;
+
+  /* ── Full AI Report ── */
+  const findings: AIFinding[] = aiReport.key_findings || [];
+  const iocs: AIIOC[] = aiReport.iocs || [];
+  const mitre: AIMitreTechnique[] = aiReport.mitre_attack || [];
+  const recommendations: AIRecommendation[] = aiReport.recommendations || [];
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* ── Top row: Risk gauge + Classification + Meta ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Risk Score */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col items-center justify-center">
+          <RiskGauge
+            score={aiReport.risk_score}
+            level={aiReport.threat_level}
+          />
+        </div>
+
+        {/* Classification */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <IoShieldOutline className="w-3.5 h-3.5" />
+            Classification
+          </h4>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Malware Type</span>
+              <span
+                className="text-sm font-bold text-gray-900 capitalize max-w-[200px] truncate"
+                title={aiReport.classification.malware_type}
+              >
+                {aiReport.classification.malware_type}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Family</span>
+              <span className="text-sm font-bold text-gray-900 capitalize">
+                {aiReport.classification.malware_family}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Platform</span>
+              <span className="text-sm font-bold text-gray-900 capitalize">
+                {aiReport.classification.platform}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Confidence</span>
+              <div className="flex items-center gap-2">
+                <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full"
+                    style={{
+                      width: `${aiReport.classification.confidence}%`,
+                    }}
+                  />
+                </div>
+                <span className="text-xs font-bold text-violet-700">
+                  {aiReport.classification.confidence}%
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Meta */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <IoServerOutline className="w-3.5 h-3.5" />
+            Analysis Meta
+          </h4>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Model</span>
+              <span className="text-xs font-mono bg-violet-50 text-violet-700 px-2 py-0.5 rounded">
+                {aiReport.model}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Status</span>
+              <span className="text-xs font-bold text-green-600 capitalize">
+                {aiReport.status}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Agents Run</span>
+              <span className="text-sm font-bold text-gray-900">
+                {aiReport.tool_results.length}
+              </span>
+            </div>
+            {aiReport.completed_at && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Completed</span>
+                <span className="text-xs text-gray-600">
+                  {new Date(aiReport.completed_at).toLocaleString()}
+                </span>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleRunAnalysis}
+            disabled={analyzing}
+            className="w-full mt-4 inline-flex items-center justify-center gap-2 text-xs font-medium text-violet-600 hover:text-violet-700 bg-violet-50 hover:bg-violet-100 px-3 py-2 rounded-lg transition-colors"
+          >
+            <IoRefreshOutline className="w-3.5 h-3.5" />
+            Re-run Analysis
+          </button>
+        </div>
+      </div>
+
+      {/* ── Executive Summary ── */}
+      {aiReport.executive_summary && (
+        <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-2xl border border-gray-200 p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <IoDocumentTextOutline className="w-3.5 h-3.5" />
+            Executive Summary
+          </h4>
+          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+            {aiReport.executive_summary}
+          </p>
+        </div>
+      )}
+
+      {/* ── Key Findings ── */}
+      {findings.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <IoAlertCircleOutline className="w-3.5 h-3.5 text-red-500" />
+            Key Findings ({findings.length})
+          </h4>
+          <div className="space-y-2.5">
+            {findings.map((f, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100"
+              >
+                <SeverityBadge severity={f.severity} />
+                <div className="flex-1">
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {f.description}
+                  </p>
+                  {f.source && (
+                    <span className="text-[10px] text-gray-400 mt-1 inline-block">
+                      Source: {f.source}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── IOC Table ── */}
+      {iocs.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <IoFingerPrintOutline className="w-3.5 h-3.5 text-violet-500" />
+            Indicators of Compromise ({iocs.length})
+          </h4>
+          <div className="overflow-x-auto rounded-xl border border-gray-100">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50/80">
+                  <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                    Type
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                    Severity
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                    Value
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {iocs.map((ioc, i) => (
+                  <tr
+                    key={i}
+                    className="hover:bg-violet-50/30 transition-colors"
+                  >
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-medium uppercase">
+                        {ioc.type === "ip" && (
+                          <IoGlobeOutline className="w-3 h-3" />
+                        )}
+                        {ioc.type === "domain" && (
+                          <IoGitNetworkOutline className="w-3 h-3" />
+                        )}
+                        {ioc.type === "file_path" && (
+                          <IoFolderOpenOutline className="w-3 h-3" />
+                        )}
+                        {ioc.type === "registry" && (
+                          <IoKeyOutline className="w-3 h-3" />
+                        )}
+                        {ioc.type === "mutex" && (
+                          <IoLockClosedOutline className="w-3 h-3" />
+                        )}
+                        {ioc.type === "hash" && (
+                          <IoFingerPrintOutline className="w-3 h-3" />
+                        )}
+                        {ioc.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <SeverityBadge severity={ioc.severity} />
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-gray-700 max-w-md truncate">
+                      {ioc.value}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── MITRE ATT&CK ── */}
+      {mitre.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <IoShieldCheckmarkOutline className="w-3.5 h-3.5 text-blue-500" />
+            MITRE ATT&CK Mapping ({mitre.length})
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {mitre.map((t, i) => (
+              <div
+                key={i}
+                className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded">
+                    {t.id}
+                  </span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {t.name}
+                  </span>
+                </div>
+                <span className="inline-block text-[10px] font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full mb-2 capitalize">
+                  {t.tactic}
+                </span>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  {t.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Recommendations ── */}
+      {recommendations.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <IoArrowForwardOutline className="w-3.5 h-3.5 text-emerald-500" />
+            Recommendations ({recommendations.length})
+          </h4>
+          <div className="space-y-2">
+            {recommendations.map((rec, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-100"
+              >
+                <span
+                  className={`shrink-0 mt-0.5 inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                    rec.priority.toLowerCase() === "high"
+                      ? "bg-red-100 text-red-700"
+                      : rec.priority.toLowerCase() === "medium"
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-blue-100 text-blue-700"
+                  }`}
+                >
+                  {rec.priority}
+                </span>
+                <p className="text-sm text-gray-700 leading-relaxed flex-1">
+                  {rec.action}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Per-Tool Agent Results ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+          <IoCodeSlashOutline className="w-3.5 h-3.5 text-gray-500" />
+          Per-Tool Agent Analysis ({aiReport.tool_results.length})
+        </h4>
+        <div className="space-y-2">
+          {aiReport.tool_results.map((tr: AIToolResult) => (
+            <div
+              key={tr.tool}
+              className="rounded-xl border border-gray-100 overflow-hidden"
+            >
+              <button
+                onClick={() =>
+                  setExpandedTool(expandedTool === tr.tool ? null : tr.tool)
+                }
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600">
+                  {tr.tool === "sysmon" && (
+                    <IoShieldCheckmarkOutline className="w-4 h-4" />
+                  )}
+                  {tr.tool === "procmon" && (
+                    <IoEyeOutline className="w-4 h-4" />
+                  )}
+                  {tr.tool === "network" && (
+                    <IoGitNetworkOutline className="w-4 h-4" />
+                  )}
+                  {tr.tool === "handle" && <IoKeyOutline className="w-4 h-4" />}
+                  {tr.tool === "tcpvcon" && (
+                    <IoSwapHorizontalOutline className="w-4 h-4" />
+                  )}
+                  {tr.tool === "metadata" && (
+                    <IoServerOutline className="w-4 h-4" />
+                  )}
+                </div>
+                <span className="text-sm font-semibold text-gray-800 capitalize flex-1 text-left">
+                  {tr.tool}
+                </span>
+                <VerdictBadge verdict={tr.verdict} />
+                <span className="text-xs text-gray-400 ml-2">
+                  {tr.confidence}% conf
+                </span>
+                <div className="flex items-center gap-2 ml-3 text-gray-400">
+                  {tr.findings_count > 0 && (
+                    <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
+                      {tr.findings_count} findings
+                    </span>
+                  )}
+                  {tr.iocs_count > 0 && (
+                    <span className="text-[10px] bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded">
+                      {tr.iocs_count} IOCs
+                    </span>
+                  )}
+                </div>
+                <span className="text-gray-400">
+                  {expandedTool === tr.tool ? (
+                    <IoChevronUpOutline className="w-4 h-4" />
+                  ) : (
+                    <IoChevronDownOutline className="w-4 h-4" />
+                  )}
+                </span>
+              </button>
+              {expandedTool === tr.tool && (
+                <div className="px-4 pb-4 border-t border-gray-50 pt-3">
+                  {tr.summary && (
+                    <p className="text-sm text-gray-600 leading-relaxed mb-3">
+                      {tr.summary}
+                    </p>
+                  )}
+                  {tr.error && (
+                    <div className="text-xs text-red-600 bg-red-50 rounded-lg p-2 mb-3">
+                      Error: {tr.error}
+                    </div>
+                  )}
+                  {/* Per-tool findings */}
+                  {tr.findings && tr.findings.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                        Findings
+                      </p>
+                      <div className="space-y-1.5">
+                        {tr.findings.map((f, fi) => (
+                          <div
+                            key={fi}
+                            className="flex items-start gap-2 text-xs"
+                          >
+                            <SeverityBadge severity={f.severity} />
+                            <span className="text-gray-600">
+                              <span className="font-medium text-gray-800">
+                                {f.indicator}
+                              </span>
+                              {f.description && ` — ${f.description}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Per-tool IOCs */}
+                  {tr.iocs && tr.iocs.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                        IOCs
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {tr.iocs.map((ioc, ii) => (
+                          <span
+                            key={ii}
+                            className="text-[10px] bg-violet-50 text-violet-700 px-2 py-0.5 rounded font-mono"
+                          >
+                            {ioc.type}: {ioc.value}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <details className="group">
+                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+                      Raw JSON response
+                    </summary>
+                    <pre className="mt-2 bg-gray-900 text-green-400 rounded-lg p-3 text-[11px] overflow-x-auto max-h-48 overflow-y-auto font-mono">
+                      {tr.raw_response}
+                    </pre>
+                  </details>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Detailed Analysis ── */}
+      {aiReport.detailed_analysis && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <IoDocumentTextOutline className="w-3.5 h-3.5" />
+            Detailed Analysis
+          </h4>
+          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+            {aiReport.detailed_analysis}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    MAIN REPORTS PAGE
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -1085,12 +1814,14 @@ export default function ReportsPage() {
   const [reports, setReports] = useState<AnalysisResult[]>([]);
   const [selected, setSelected] = useState<AnalysisResult | null>(null);
   const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [aiReport, setAiReport] = useState<AIReport | null>(null);
   const [activeTab, setActiveTab] = useState<"report" | "ai">("report");
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchData = async () => {
     setLoading(true);
@@ -1129,6 +1860,7 @@ export default function ReportsPage() {
   const selectReport = async (report: AnalysisResult) => {
     setSelected(report);
     setReportData(null);
+    setAiReport(null);
     setDetailLoading(true);
     setActiveTab("report");
     try {
@@ -1138,9 +1870,17 @@ export default function ReportsPage() {
       }
     } catch {
       // Could not load report data
-    } finally {
-      setDetailLoading(false);
     }
+    // Also try to load existing AI report (non-blocking)
+    try {
+      const aiResp = await getAIReport(report.analysis_id);
+      if (aiResp.status === "ok" && aiResp.data) {
+        setAiReport(aiResp.data as AIReport);
+      }
+    } catch {
+      // No AI report yet — that's ok
+    }
+    setDetailLoading(false);
   };
 
   const handleClearAll = async () => {
@@ -1151,6 +1891,7 @@ export default function ReportsPage() {
         setReports([]);
         setSelected(null);
         setReportData(null);
+        setAiReport(null);
         setShowClearConfirm(false);
       } else {
         setError(resp.error?.message || "Failed to clear reports");
@@ -1180,18 +1921,50 @@ export default function ReportsPage() {
     }
   };
 
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case "complete":
+        return (
+          <IoCheckmarkCircleOutline className="w-3.5 h-3.5 text-green-500" />
+        );
+      case "failed":
+        return <IoAlertCircleOutline className="w-3.5 h-3.5 text-red-500" />;
+      case "running":
+        return (
+          <IoRadioButtonOnOutline className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
+        );
+      default:
+        return <IoTimeOutline className="w-3.5 h-3.5 text-gray-400" />;
+    }
+  };
+
+  const filteredReports = reports.filter((r) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      r.sample_name?.toLowerCase().includes(q) ||
+      r.analysis_id?.toLowerCase().includes(q) ||
+      r.status?.toLowerCase().includes(q)
+    );
+  });
+
   const rd = reportData;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Analysis Reports</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Analysis Reports</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {reports.length} report{reports.length !== 1 ? "s" : ""} available
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           {reports.length > 0 && (
             <button
               onClick={() => setShowClearConfirm(true)}
-              className="inline-flex items-center gap-2 text-sm text-red-500 hover:text-red-700 transition-colors"
+              className="inline-flex items-center gap-2 text-sm text-red-500 hover:text-red-700 transition-colors px-3 py-1.5 rounded-lg hover:bg-red-50"
             >
               <IoTrashOutline className="w-4 h-4" />
               Clear All
@@ -1199,7 +1972,7 @@ export default function ReportsPage() {
           )}
           <button
             onClick={fetchData}
-            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-violet-600 transition-colors"
+            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-violet-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-violet-50"
           >
             <IoRefreshOutline className="w-4 h-4" />
             Refresh
@@ -1258,15 +2031,22 @@ export default function ReportsPage() {
       )}
 
       {!loading && !error && reports.length === 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-          <IoDocumentTextOutline className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">No analysis reports yet.</p>
-          <p className="text-sm text-gray-400 mt-1">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-16 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-2xl flex items-center justify-center">
+            <IoDocumentTextOutline className="w-8 h-8 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-800 mb-1">
+            No analysis reports yet
+          </h3>
+          <p className="text-sm text-gray-400">
             Submit a sample from the{" "}
-            <a href="/scan" className="text-violet-600 hover:text-violet-700">
+            <a
+              href="/scan"
+              className="text-violet-600 hover:text-violet-700 font-medium"
+            >
               Scan
             </a>{" "}
-            page.
+            page to get started.
           </p>
         </div>
       )}
@@ -1274,46 +2054,191 @@ export default function ReportsPage() {
       {/* Main layout */}
       {!loading && reports.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Sidebar */}
-          <div className="lg:col-span-1 space-y-2">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-              Analyses ({reports.length})
-            </h3>
-            <div className="space-y-1.5 max-h-[calc(100vh-200px)] overflow-y-auto">
-              {reports.map((report) => (
-                <button
-                  key={report.analysis_id}
-                  onClick={() => selectReport(report)}
-                  className={`w-full text-left p-3 rounded-xl border transition-all ${
-                    selected?.analysis_id === report.analysis_id
-                      ? "border-violet-300 bg-violet-50 shadow-sm"
-                      : "border-gray-200 bg-white hover:bg-gray-50"
-                  }`}
-                >
-                  <p className="text-sm font-medium text-gray-800 truncate">
-                    {report.sample_name || "Unknown"}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded-lg text-xs font-medium border ${statusColor(report.status)}`}
+          {/* ────── Sidebar ────── */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              {/* Search */}
+              <div className="p-3 border-b border-gray-100">
+                <div className="relative">
+                  <IoSearchOutline className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search reports..."
+                    className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-300 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Report list */}
+              <div className="max-h-[calc(100vh-280px)] overflow-y-auto divide-y divide-gray-50">
+                {filteredReports.map((report) => {
+                  const isActive = selected?.analysis_id === report.analysis_id;
+                  return (
+                    <button
+                      key={report.analysis_id}
+                      onClick={() => selectReport(report)}
+                      className={`w-full text-left px-4 py-3.5 transition-all ${
+                        isActive
+                          ? "bg-violet-50 border-l-3 border-l-violet-500"
+                          : "hover:bg-gray-50"
+                      }`}
                     >
-                      {report.status}
-                    </span>
+                      <div className="flex items-start gap-2.5">
+                        {statusIcon(report.status)}
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={`text-sm font-medium truncate ${isActive ? "text-violet-900" : "text-gray-800"}`}
+                          >
+                            {report.sample_name || "Unknown"}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span
+                              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusColor(report.status)}`}
+                            >
+                              {report.status}
+                            </span>
+                            {report.started_at && (
+                              <span className="text-[10px] text-gray-400">
+                                {new Date(
+                                  report.started_at,
+                                ).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {filteredReports.length === 0 && (
+                  <div className="p-6 text-center">
+                    <p className="text-xs text-gray-400">No matches</p>
                   </div>
-                  {report.started_at && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      {new Date(report.started_at).toLocaleString()}
-                    </p>
-                  )}
-                </button>
-              ))}
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Detail panel */}
+          {/* ────── Detail Panel ────── */}
           <div className="lg:col-span-4 space-y-4">
             {selected ? (
               <>
+                {/* Report header card */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-xl font-bold text-gray-900 truncate">
+                        {selected.sample_name}
+                      </h2>
+                      <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                        {selected.analysis_id}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4 shrink-0">
+                      {aiReport && (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                            aiReport.risk_score >= 70
+                              ? "bg-red-100 text-red-700"
+                              : aiReport.risk_score >= 40
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-green-100 text-green-700"
+                          }`}
+                        >
+                          <IoAnalyticsOutline className="w-3 h-3" />
+                          Risk: {aiReport.risk_score}
+                        </span>
+                      )}
+                      <span
+                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium border ${statusColor(selected.status)}`}
+                      >
+                        {selected.status === "complete" && (
+                          <IoCheckmarkCircleOutline className="w-3.5 h-3.5" />
+                        )}
+                        {selected.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <MiniStat
+                      label="Timeout"
+                      value={`${selected.timeout}s`}
+                      icon={<IoTimeOutline className="w-4 h-4" />}
+                      accent="violet"
+                    />
+                    <MiniStat
+                      label="Sysmon Events"
+                      value={
+                        rd?.sysmon?.sample_events ?? selected.sysmon_events ?? 0
+                      }
+                      icon={<IoBugOutline className="w-4 h-4" />}
+                      accent="red"
+                    />
+                    <MiniStat
+                      label="Procmon Rows"
+                      value={
+                        rd?.procmon?.sample_events?.toLocaleString() ?? "—"
+                      }
+                      icon={<IoEyeOutline className="w-4 h-4" />}
+                      accent="amber"
+                    />
+                    <MiniStat
+                      label="Files Collected"
+                      value={selected.files_collected?.length || 0}
+                      icon={<IoFolderOpenOutline className="w-4 h-4" />}
+                      accent="emerald"
+                    />
+                    <MiniStat
+                      label="Screenshots"
+                      value={rd?.screenshots?.length ?? 0}
+                      icon={<IoImageOutline className="w-4 h-4" />}
+                      accent="sky"
+                    />
+                  </div>
+
+                  {/* Timestamps */}
+                  <div className="flex flex-wrap gap-4 text-xs text-gray-500 pt-3 border-t border-gray-100">
+                    {selected.started_at && (
+                      <span className="flex items-center gap-1">
+                        <IoTimeOutline className="w-3 h-3" />
+                        Started:{" "}
+                        {new Date(selected.started_at).toLocaleString()}
+                      </span>
+                    )}
+                    {selected.completed_at && (
+                      <span className="flex items-center gap-1">
+                        <IoCheckmarkCircleOutline className="w-3 h-3" />
+                        Completed:{" "}
+                        {new Date(selected.completed_at).toLocaleString()}
+                      </span>
+                    )}
+                    {(rd?.sysmon?.sample_process ||
+                      rd?.procmon?.sample_process) && (
+                      <span className="flex items-center gap-1">
+                        <IoTerminalOutline className="w-3 h-3" />
+                        Process:{" "}
+                        <code className="bg-gray-100 px-1.5 py-0.5 rounded text-[11px]">
+                          {rd?.sysmon?.sample_process ||
+                            rd?.procmon?.sample_process}
+                        </code>
+                      </span>
+                    )}
+                  </div>
+
+                  {selected.error && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-4">
+                      <p className="text-sm text-red-700 flex items-center gap-2">
+                        <IoAlertCircleOutline className="w-4 h-4 shrink-0" />
+                        {selected.error}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Tab switcher */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                   <div className="flex border-b border-gray-100">
@@ -1326,7 +2251,7 @@ export default function ReportsPage() {
                       }`}
                     >
                       <IoDocumentTextOutline className="w-4 h-4" />
-                      Report
+                      Raw Report
                     </button>
                     <button
                       onClick={() => setActiveTab("ai")}
@@ -1337,163 +2262,39 @@ export default function ReportsPage() {
                       }`}
                     >
                       <IoSparklesOutline className="w-4 h-4" />
-                      AI Summary
-                      <span className="text-[10px] font-normal bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
-                        Coming Soon
-                      </span>
+                      AI Analysis
+                      {aiReport && (
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                            aiReport.risk_score >= 70
+                              ? "bg-red-100 text-red-600"
+                              : aiReport.risk_score >= 40
+                                ? "bg-amber-100 text-amber-600"
+                                : "bg-green-100 text-green-600"
+                          }`}
+                        >
+                          {aiReport.risk_score}
+                        </span>
+                      )}
+                      {!aiReport && (
+                        <span className="text-[10px] font-normal bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full">
+                          New
+                        </span>
+                      )}
                     </button>
                   </div>
 
-                  {activeTab === "report" && (
-                    <div className="p-6">
-                      {detailLoading ? (
-                        <div className="text-center py-12">
-                          <div className="animate-spin w-8 h-8 border-4 border-violet-200 border-t-violet-500 rounded-full mx-auto mb-3" />
-                          <p className="text-sm text-gray-500">
-                            Loading report data...
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-start justify-between mb-4">
-                            <div>
-                              <h2 className="text-xl font-bold text-gray-900">
-                                {selected.sample_name}
-                              </h2>
-                              <p className="text-xs text-gray-400 mt-0.5 font-mono">
-                                {selected.analysis_id}
-                              </p>
-                            </div>
-                            <span
-                              className={`inline-block px-3 py-1 rounded-full text-xs font-medium border ${statusColor(selected.status)}`}
-                            >
-                              {selected.status === "complete" && (
-                                <IoCheckmarkCircleOutline className="w-3.5 h-3.5 inline mr-1" />
-                              )}
-                              {selected.status}
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-                            <MiniStat
-                              label="Timeout"
-                              value={`${selected.timeout}s`}
-                              icon={<IoTimeOutline className="w-4 h-4" />}
-                              accent="violet"
-                            />
-                            <MiniStat
-                              label="Sysmon Events"
-                              value={
-                                rd?.sysmon?.sample_events ??
-                                selected.sysmon_events ??
-                                0
-                              }
-                              icon={<IoBugOutline className="w-4 h-4" />}
-                              accent="red"
-                            />
-                            <MiniStat
-                              label="Procmon Rows"
-                              value={
-                                rd?.procmon?.sample_events?.toLocaleString() ??
-                                "—"
-                              }
-                              icon={<IoEyeOutline className="w-4 h-4" />}
-                              accent="amber"
-                            />
-                            <MiniStat
-                              label="Files Collected"
-                              value={selected.files_collected?.length || 0}
-                              icon={<IoFolderOpenOutline className="w-4 h-4" />}
-                              accent="emerald"
-                            />
-                            <MiniStat
-                              label="Screenshots"
-                              value={rd?.screenshots?.length ?? 0}
-                              icon={<IoImageOutline className="w-4 h-4" />}
-                              accent="sky"
-                            />
-                          </div>
-
-                          <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-4 pb-4 border-b border-gray-100">
-                            {selected.started_at && (
-                              <span>
-                                🕐 Started:{" "}
-                                {new Date(selected.started_at).toLocaleString()}
-                              </span>
-                            )}
-                            {selected.completed_at && (
-                              <span>
-                                ✅ Completed:{" "}
-                                {new Date(
-                                  selected.completed_at,
-                                ).toLocaleString()}
-                              </span>
-                            )}
-                            {(rd?.sysmon?.sample_process ||
-                              rd?.procmon?.sample_process) && (
-                              <span>
-                                🎯 Process:{" "}
-                                <code className="bg-gray-100 px-1 rounded">
-                                  {rd?.sysmon?.sample_process ||
-                                    rd?.procmon?.sample_process}
-                                </code>
-                              </span>
-                            )}
-                          </div>
-
-                          {selected.error && (
-                            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
-                              <p className="text-sm text-red-700">
-                                ❌ {selected.error}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
+                  {/* AI Tab */}
                   {activeTab === "ai" && (
-                    <div className="p-6">
-                      <div className="text-center py-16">
-                        <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-violet-100 to-purple-100 rounded-2xl flex items-center justify-center">
-                          <IoSparklesOutline className="w-10 h-10 text-violet-500" />
-                        </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">
-                          AI-Powered Threat Intelligence
-                        </h3>
-                        <p className="text-gray-500 max-w-md mx-auto mb-4">
-                          Automatic threat classification, MITRE ATT&CK mapping,
-                          risk scoring, and IOC extraction.
-                        </p>
-                        <span className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-sm font-medium">
-                          <IoAlertCircleOutline className="w-4 h-4" />
-                          Coming Soon
-                        </span>
-                        <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 max-w-2xl mx-auto opacity-50">
-                          {[
-                            { label: "Threat Classification", icon: "🎯" },
-                            { label: "MITRE ATT&CK Map", icon: "🗺️" },
-                            { label: "Risk Score", icon: "📊" },
-                            { label: "IOC Extraction", icon: "🔍" },
-                          ].map((item) => (
-                            <div
-                              key={item.label}
-                              className="bg-white border border-gray-200 rounded-xl p-3 text-center"
-                            >
-                              <span className="text-2xl">{item.icon}</span>
-                              <p className="text-xs text-gray-500 mt-1">
-                                {item.label}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+                    <AIAnalysisTab
+                      analysisId={selected.analysis_id}
+                      aiReport={aiReport}
+                      setAiReport={setAiReport}
+                    />
                   )}
                 </div>
 
-                {/* Report sections (always visible with empty states) */}
+                {/* Report sections (only when report tab active) */}
                 {activeTab === "report" && !detailLoading && rd && (
                   <div className="space-y-4">
                     {rd.metadata?.collectors && (
@@ -1660,10 +2461,27 @@ export default function ReportsPage() {
                       )}
                   </div>
                 )}
+
+                {activeTab === "report" && detailLoading && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
+                    <div className="animate-spin w-8 h-8 border-4 border-violet-200 border-t-violet-500 rounded-full mx-auto mb-3" />
+                    <p className="text-sm text-gray-500">
+                      Loading report data...
+                    </p>
+                  </div>
+                )}
               </>
             ) : (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-                <p className="text-gray-500">Select a report to view details</p>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-16 text-center">
+                <div className="w-12 h-12 mx-auto mb-4 bg-gray-100 rounded-xl flex items-center justify-center">
+                  <IoDocumentTextOutline className="w-6 h-6 text-gray-400" />
+                </div>
+                <p className="text-gray-500 font-medium">
+                  Select a report to view details
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Choose from the list on the left
+                </p>
               </div>
             )}
           </div>

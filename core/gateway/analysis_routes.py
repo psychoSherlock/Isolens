@@ -11,6 +11,8 @@ Endpoints
   GET  /api/analysis/agent/artifacts  Proxy to agent GET /api/artifacts.
   GET  /api/analysis/report/{analysis_id}/screenshots  List screenshots.
   GET  /api/analysis/report/{analysis_id}/file/{filename} Serve a report file.
+  POST /api/analysis/report/{analysis_id}/ai-analyze   Run AI threat analysis.
+  GET  /api/analysis/report/{analysis_id}/ai-report    Retrieve AI report.
 """
 
 from __future__ import annotations
@@ -346,4 +348,61 @@ def get_report_data(analysis_id: str):
                     screenshots.append(f)
     data["screenshots"] = sorted(set(screenshots))
 
+    return _ok(data)
+
+
+# ─── AI Threat Analysis endpoints ────────────────────────────────────────
+
+# Lazy-initialised analyzer (avoids import cost at startup)
+_threat_analyzer = None
+
+
+def _get_threat_analyzer():
+    global _threat_analyzer
+    if _threat_analyzer is None:
+        from core.threatintelligence.threat_analyzer import ThreatAnalyzer
+        _threat_analyzer = ThreatAnalyzer()
+    return _threat_analyzer
+
+
+@router.post("/report/{analysis_id}/ai-analyze", response_model=StandardResponse)
+async def ai_analyze_report(analysis_id: str) -> StandardResponse:
+    """Run the multi-agent AI threat analysis pipeline on an existing report.
+
+    Dispatches each collector's data to a specialised Copilot agent, then
+    feeds all per-tool XML analyses to the *threat-summarizer* agent for a
+    final risk score and executive summary.
+
+    Results are saved to ``<report_dir>/ai_analysis/`` and returned in the
+    response.
+    """
+    safe_id = os.path.basename(analysis_id)
+    report_dir = os.path.join(DEFAULT_REPORTS_DIR, safe_id)
+    if not os.path.isdir(report_dir):
+        return _error("Report not found", details=f"No directory for {safe_id}")
+
+    try:
+        analyzer = _get_threat_analyzer()
+        result = await analyzer.analyze_report(safe_id)
+        return _ok(result.to_dict())
+    except Exception as exc:
+        log.exception("AI analysis failed for %s", safe_id)
+        return _error("AI analysis failed", details=str(exc))
+
+
+@router.get("/report/{analysis_id}/ai-report", response_model=StandardResponse)
+def get_ai_report(analysis_id: str) -> StandardResponse:
+    """Retrieve a previously generated AI threat analysis report.
+
+    Returns the saved JSON from ``<report_dir>/ai_analysis/ai_report.json``
+    if it exists, or an error otherwise.
+    """
+    safe_id = os.path.basename(analysis_id)
+    analyzer = _get_threat_analyzer()
+    data = analyzer.get_ai_report(safe_id)
+    if data is None:
+        return _error(
+            "AI report not found",
+            details=f"No AI analysis has been run for {safe_id}. POST to /ai-analyze first.",
+        )
     return _ok(data)

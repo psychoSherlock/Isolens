@@ -350,3 +350,19 @@ Retrieve all parsed collector data for a single analysis (Sysmon, Procmon, Netwo
 ```bash
 curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/data
 ```
+
+## Run AI Threat Analysis
+
+Run the multi-agent AI threat analysis pipeline on an existing report. Each collector's data is sent to a specialised Copilot agent (gpt-5-mini), then all per-tool XML analyses are fed to the threat-summarizer agent for a final risk score and executive summary. Results are saved to `<report_dir>/ai_analysis/`.
+
+```bash
+curl -s -X POST http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/ai-analyze
+```
+
+## Get AI Report
+
+Retrieve a previously generated AI threat analysis report (JSON).
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/ai-report
+```

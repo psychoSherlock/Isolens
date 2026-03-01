@@ -343,3 +343,108 @@ export async function getReportData(analysisId: string) {
     `/api/analysis/report/${encodeURIComponent(analysisId)}/data`,
   );
 }
+
+// ─── AI Analysis ──────────────────────────────────────────────────────────
+
+export interface AIToolFinding {
+  severity: string;
+  indicator: string;
+  description: string;
+}
+
+export interface AIToolIOC {
+  type: string;
+  value: string;
+}
+
+export interface AIToolResult {
+  tool: string;
+  agent_name: string;
+  verdict: string;
+  confidence: number;
+  findings_count: number;
+  iocs_count: number;
+  summary: string;
+  findings: AIToolFinding[];
+  iocs: AIToolIOC[];
+  raw_response: string;
+  error: string | null;
+}
+
+export interface AIClassification {
+  malware_type: string;
+  malware_family: string;
+  platform: string;
+  confidence: number;
+}
+
+export interface AIFinding {
+  source: string;
+  severity: string;
+  description: string;
+}
+
+export interface AIIOC {
+  type: string;
+  severity: string;
+  value: string;
+}
+
+export interface AIMitreTechnique {
+  id: string;
+  name: string;
+  tactic: string;
+  description: string;
+}
+
+export interface AIRecommendation {
+  priority: string;
+  action: string;
+}
+
+export interface AIReport {
+  analysis_id: string;
+  model: string;
+  started_at: string | null;
+  completed_at: string | null;
+  status: "pending" | "running" | "complete" | "failed";
+  error: string | null;
+  risk_score: number;
+  threat_level: string;
+  classification: AIClassification;
+  executive_summary: string;
+  detailed_analysis: string;
+  key_findings: AIFinding[];
+  iocs: AIIOC[];
+  mitre_attack: AIMitreTechnique[];
+  recommendations: AIRecommendation[];
+  tool_results: AIToolResult[];
+  raw_summary: string;
+}
+
+export async function runAIAnalysis(
+  analysisId: string,
+): Promise<ApiResponse<AIReport>> {
+  // AI analysis can take 2-3 minutes (7 Copilot agents), so use a long timeout
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 min
+  try {
+    const res = await fetch(
+      `/api/analysis/report/${encodeURIComponent(analysisId)}/ai-analyze`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+      },
+    );
+    return res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function getAIReport(analysisId: string) {
+  return get<AIReport>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/ai-report`,
+  );
+}

@@ -142,11 +142,41 @@ API endpoints:
 AI-assisted intelligence layer:
 - Natural language summaries
 - Threat classification
-- Risk explanation
+- Risk scoring (0-100 scale with threat level mapping)
 - Intelligence enrichment
 - AI-driven report augmentation
+- MITRE ATT&CK technique mapping
+- IOC extraction and deduplication
 
-This layer operates on structured findings from `modules/`, not raw logs.
+All AI calls are pinned to the **gpt-5-mini** model for consistent behavior and lower token costs.
+
+### Multi-Agent Analysis Pipeline
+
+The pipeline uses specialised per-tool agents that each receive minimal data (reducing token usage) and return structured XML:
+
+| Agent | Input | Purpose |
+|---|---|---|
+| `sysmon-analyzer` | Sysmon event summary | Detect process injection, LOLBin abuse, persistence |
+| `procmon-analyzer` | Procmon summary JSON | Detect file/registry/process suspicious activity |
+| `network-analyzer` | Network capture summary | Detect C2, beaconing, exfiltration |
+| `handle-analyzer` | Handle snapshot text | Detect mutex, sensitive file handles |
+| `tcpvcon-analyzer` | TCPVcon CSV snapshot | Detect active malicious connections |
+| `metadata-analyzer` | Execution metadata | Detect sandbox evasion, anomalies |
+| `threat-summarizer` | All per-tool XMLs | Final risk score, classification, MITRE mapping |
+
+### Files
+
+- `copilot_agents.py` — Per-tool analyst agents + threat-summarizer with XML schema contracts
+- `copilot_service.py` — Async Copilot SDK wrapper (gpt-5-mini enforced)
+- `copilot_cli.py` — CLI for auth-status, list-agents, list-models, chat
+- `threat_analyzer.py` — Pipeline orchestrator: loads report data → dispatches to agents → collects XML → calls summarizer → saves results
+
+### Gateway Endpoints
+
+- `POST /api/analysis/report/{id}/ai-analyze` — Run AI analysis pipeline
+- `GET  /api/analysis/report/{id}/ai-report`  — Retrieve saved AI report
+
+This layer operates on structured findings from collector artifacts, not raw logs.
 
 ---
 
