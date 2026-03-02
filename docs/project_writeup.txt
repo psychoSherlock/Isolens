@@ -1,0 +1,55 @@
+IsoLens – Project Weekly Writeup
+=================================
+
+
+Week 1 – Research, Tool Selection, and Architecture Planning
+-------------------------------------------------------------
+
+The first week was spent entirely on research and planning. The team studied existing malware
+sandboxing platforms and shortlisted the monitoring tools to be used, including Sysinternals
+Process Monitor (Procmon), Sysmon, Handle, TCPVcon, and FakeNet-NG. The technology stack was
+finalized as Python for all backend components, Next.js with Tailwind CSS for the frontend,
+SQLite for storage, and VirtualBox with Windows 10 as the sandboxed guest environment. By the
+end of the week, the full system architecture was agreed upon, separating concerns into a gateway,
+controller, observer, modules, and storage layer, with the foundational idea and architecture
+documents committed to the repository.
+
+
+Week 2 – Project Structuring, Parallel Development, and UI Design
+------------------------------------------------------------------
+
+Week 2 focused on scaffolding the codebase under the core/ directory and splitting development
+across the four team members. One member built the Flask-based gateway API, another worked on
+the VBoxManage-driven controller for VM lifecycle management, a third designed the SQLite storage
+schema and directory layout, and the fourth scaffolded the Next.js frontend with Tailwind CSS,
+React Icons, and Axios. UI mockups, component plans, and design references were shared and pushed
+to the repository, and by the end of the week each subsystem had a working skeleton with agreed
+communication contracts between layers.
+
+
+Week 3 – Infrastructure Completion, Agent Development, and Sample Malware
+--------------------------------------------------------------------------
+
+The third week brought the entire infrastructure to a functional state. The controller, observer,
+and modules layers were completed, supporting live screenshot capture, behavioral log collection,
+IOC extraction, and risk scoring. A key decision made during this week was to build a dedicated
+guest-side agent — isolens_agent.py — a single-file, stdlib-only Python HTTP service running
+inside the sandbox VM, exposing REST endpoints for execution, artifact collection, and result
+export back to the host. Alongside this, a sample malware emulator, not_a_malware.exe, was
+authored to simulate suspicious behaviors and serve as a reproducible test artifact for validating
+the full analysis pipeline.
+
+
+Week 4 – AI Integration, Benchmarking, and Final Implementation
+----------------------------------------------------------------
+
+The final week focused on integrating artificial intelligence to produce natural language threat
+summaries, MITRE ATT&CK mappings, and a holistic risk classification. The team initially attempted
+to host a local language model, benchmarking several open-weight models on the analysis task.
+However, the available hardware lacked sufficient CPU capacity for acceptable inference speed,
+model output quality was inadequate, and fine-tuning was ruled out due to the lack of labeled
+training data. The team pivoted to integrating the Generative Pre-Trained Transformer Large
+Language Model version 5 (GPT-5) via its API. A multi-agent pipeline was built inside
+core/threatintelligence, where specialised per-tool agents analyse Sysmon, Procmon, network,
+handle, and TCPVcon data independently before a threat-summarizer agent consolidates the findings
+into a final scored and classified report.
