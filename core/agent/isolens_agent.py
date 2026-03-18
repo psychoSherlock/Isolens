@@ -415,6 +415,14 @@ class ProcmonCollector(BaseCollector):
         summary_file = os.path.join(self.output_dir, "procmon_summary.json")
         collected_files: list = []
 
+        # Prevent Procmon UI overwrite prompts by removing stale export targets.
+        for stale_path in (csv_file, summary_file):
+            if os.path.isfile(stale_path):
+                try:
+                    os.remove(stale_path)
+                except OSError as exc:
+                    log.warning("Failed removing stale Procmon file %s: %s", stale_path, exc)
+
         # Terminate Procmon to flush buffered data
         try:
             subprocess.run([exe, "/Terminate"], capture_output=True, timeout=30)
@@ -434,7 +442,7 @@ class ProcmonCollector(BaseCollector):
         # PML → CSV conversion
         try:
             proc = subprocess.Popen(
-                [exe, "/OpenLog", pml_file, "/SaveAs", csv_file, "/AcceptEula"],
+                [exe, "/OpenLog", pml_file, "/SaveAs", csv_file, "/AcceptEula", "/Quiet"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             proc.wait(timeout=45)
@@ -1040,6 +1048,11 @@ class IsoLensAgent:
                         self.artifacts_dir, "procmon", "procmon.pml"
                     )
                     os.makedirs(os.path.dirname(procmon_pml), exist_ok=True)
+                    if os.path.isfile(procmon_pml):
+                        try:
+                            os.remove(procmon_pml)
+                        except OSError as exc:
+                            log.warning("Could not remove stale Procmon backing file: %s", exc)
                     # Kill any leftover Procmon instances first
                     subprocess.run(
                         ["taskkill", "/f", "/im", os.path.basename(procmon_exe)],

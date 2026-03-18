@@ -44,6 +44,7 @@ export default function ScanPage() {
 
   // New states for Sandbox Preview and Timer
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const [previewSrc, setPreviewSrc] = useState<string>("");
   const [previewExpanded, setPreviewExpanded] = useState(false);
 
@@ -75,10 +76,12 @@ export default function ScanPage() {
           const d = resp.data as AnalysisResult;
           if (d.status === "running") {
             setScanState("running");
-            setStatusMsg(`Analysing ${d.sample_name}...`);
-            setProgress(50);
+            if (!isFinalizing) {
+              setStatusMsg(`Analysing ${d.sample_name}...`);
+              setProgress(50);
+            }
             setResult(d);
-            
+
             // Re-calculate time remaining if possible (fallback to full timeout)
             setTimeRemaining(d.timeout || timeout);
 
@@ -108,7 +111,9 @@ export default function ScanPage() {
     })();
   }, []);
 
-  const handleVMCtrl = async (action: "start" | "stop" | "reboot" | "check") => {
+  const handleVMCtrl = async (
+    action: "start" | "stop" | "reboot" | "check",
+  ) => {
     if (vmBusy || scanState === "running" || scanState === "uploading") return;
     setVmBusy(true);
     setAgentStatus(null);
@@ -124,11 +129,11 @@ export default function ScanPage() {
           setAgentStatus("Offline");
         }
       }
-      
+
       // Re-fetch info if it was a state change
       if (action !== "check") {
-         const res = await getVMInfo("WindowsSandbox");
-         if (res.status === "ok" && res.data) setVmInfo(res.data.info);
+        const res = await getVMInfo("WindowsSandbox");
+        if (res.status === "ok" && res.data) setVmInfo(res.data.info);
       }
     } catch {
       if (action === "check") setAgentStatus("Offline");
@@ -147,9 +152,13 @@ export default function ScanPage() {
           setResult(d);
           if (d.status === "running") {
             setScanState("running");
-            setTimeRemaining((prev) => prev === null ? (d.timeout || timeout) : prev);
-            setProgress(50);
-            setStatusMsg(`Analysing ${d.sample_name}...`);
+            setTimeRemaining((prev) =>
+              prev === null ? d.timeout || timeout : prev,
+            );
+            if (!isFinalizing) {
+              setProgress(50);
+              setStatusMsg(`Analysing ${d.sample_name}...`);
+            }
           } else if (d.status === "complete") {
             setProgress(100);
             setStatusMsg("Analysis complete!");
@@ -167,13 +176,14 @@ export default function ScanPage() {
         // Transient error, keep polling
       }
     }, 3000);
-  }, []);
+  }, [timeout, isFinalizing]);
 
   const cleanupTimers = () => {
     if (pollingRef.current) clearInterval(pollingRef.current);
     if (previewTimerRef.current) clearInterval(previewTimerRef.current);
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
     setTimeRemaining(null);
+    setIsFinalizing(false);
   };
 
   // Preview polling logic
@@ -186,12 +196,18 @@ export default function ScanPage() {
           setPreviewSrc(vmScreenURL("WindowsSandbox"));
         }, 2000);
       }
-      
+
       // Setup countdown timer
       if (!countdownTimerRef.current && timeRemaining !== null) {
         countdownTimerRef.current = setInterval(() => {
           setTimeRemaining((prev) => {
             if (prev === null || prev <= 0) return 0;
+            if (prev <= 1) {
+              setIsFinalizing(true);
+              setStatusMsg("Execution finished. Collecting artifacts...");
+              setProgress(85);
+              return 0;
+            }
             return prev - 1;
           });
         }, 1000);
@@ -238,11 +254,12 @@ export default function ScanPage() {
     }
 
     setScanState("uploading");
+    setIsFinalizing(false);
     setProgress(10);
     setStatusMsg("Uploading file & starting environment...");
     setError(null);
 
-    // Start polling immediately so the UI transitions to "running" state 
+    // Start polling immediately so the UI transitions to "running" state
     // even while submitAnalysis awaits the orchestrator to finish
     window.setTimeout(() => {
       startPolling();
@@ -268,6 +285,7 @@ export default function ScanPage() {
 
       // Start the countdown based on selected timeout
       setTimeRemaining(timeout);
+      setIsFinalizing(false);
 
       if (d.status === "complete") {
         setScanState("complete");
@@ -328,8 +346,12 @@ export default function ScanPage() {
     <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between pb-4 border-b border-slate-200">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">New Scan</h1>
-          <p className="text-sm text-slate-500 mt-1">Submit a suspicious file for dynamic behavioral analysis</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            New Scan
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Submit a suspicious file for dynamic behavioral analysis
+          </p>
         </div>
       </div>
 
@@ -410,19 +432,42 @@ export default function ScanPage() {
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <span className="text-xs font-semibold text-slate-500 font-mono w-10 text-right">{progress}%</span>
+              <span className="text-xs font-semibold text-slate-500 font-mono w-10 text-right">
+                {progress}%
+              </span>
             </div>
 
             {/* Timer */}
             {scanState === "running" && timeRemaining !== null && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-md flex items-center justify-between">
+              <div
+                className={`mt-4 p-3 rounded-md flex items-center justify-between ${
+                  isFinalizing
+                    ? "bg-amber-50 border border-amber-100"
+                    : "bg-red-50 border border-red-100"
+                }`}
+              >
                 <div className="flex items-center gap-2">
-                  <IoHourglassOutline className="w-5 h-5 text-red-500 animate-spin-slow" />
-                  <span className="text-sm font-medium text-red-700">Analysis in progress</span>
+                  <IoHourglassOutline
+                    className={`w-5 h-5 animate-spin-slow ${isFinalizing ? "text-amber-500" : "text-red-500"}`}
+                  />
+                  <span
+                    className={`text-sm font-medium ${isFinalizing ? "text-amber-700" : "text-red-700"}`}
+                  >
+                    {isFinalizing
+                      ? "Finalizing: collecting logs and screenshots"
+                      : "Execution in progress"}
+                  </span>
                 </div>
-                <div className="text-lg font-bold font-mono text-red-600 tabular-nums">
-                  {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
-                </div>
+                {isFinalizing ? (
+                  <div className="text-sm font-semibold text-amber-700">
+                    Please wait...
+                  </div>
+                ) : (
+                  <div className="text-lg font-bold font-mono text-red-600 tabular-nums">
+                    {Math.floor(timeRemaining / 60)}:
+                    {(timeRemaining % 60).toString().padStart(2, "0")}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -447,7 +492,9 @@ export default function ScanPage() {
             </div>
 
             <div className="flex items-center justify-between border border-slate-200 rounded-md p-3 bg-slate-50/50">
-              <span className="text-sm font-medium text-slate-700">Capture Visuals</span>
+              <span className="text-sm font-medium text-slate-700">
+                Capture Visuals
+              </span>
               <button
                 onClick={() => setCaptureScreenshots(!captureScreenshots)}
                 className={`relative w-9 h-5 rounded-full transition-colors ${
@@ -515,9 +562,11 @@ export default function ScanPage() {
                   </>
                 )}
               </button>
-              
+
               <div className="flex justify-between items-center mt-3">
-                <span className="text-[11px] text-slate-400">VM State: Ready</span>
+                <span className="text-[11px] text-slate-400">
+                  VM State: Ready
+                </span>
                 <button
                   onClick={handleReset}
                   className="text-[11px] font-medium text-slate-500 hover:text-slate-800 flex items-center gap-1"
@@ -539,13 +588,15 @@ export default function ScanPage() {
               Scan Results
             </h2>
           </div>
-          
+
           <div className="p-6">
             {error && (
               <div className="flex items-start gap-4 border border-red-200 bg-red-50/50 rounded-md p-4">
                 <IoCloseCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="text-sm font-semibold text-red-800">Scan Failed</h4>
+                  <h4 className="text-sm font-semibold text-red-800">
+                    Scan Failed
+                  </h4>
                   <p className="text-sm text-red-700 mt-1">{error}</p>
                 </div>
               </div>
@@ -558,16 +609,27 @@ export default function ScanPage() {
                     <IoCheckmarkCircle className="w-6 h-6 text-emerald-600" />
                   </div>
                   <div>
-                    <h4 className="text-base font-semibold text-emerald-900">Analysis Completed Successfully</h4>
+                    <h4 className="text-base font-semibold text-emerald-900">
+                      Analysis Completed Successfully
+                    </h4>
                     <p className="text-sm text-emerald-800 mt-0.5">
-                      <span className="font-mono text-xs bg-emerald-100 px-1.5 py-0.5 rounded">{result.sample_name}</span> has been processed.
+                      <span className="font-mono text-xs bg-emerald-100 px-1.5 py-0.5 rounded">
+                        {result.sample_name}
+                      </span>{" "}
+                      has been processed.
                     </p>
                     <div className="flex gap-4 mt-3">
                       <div className="text-xs text-emerald-700">
-                        <span className="font-bold">{result.sysmon_events}</span> Events Captured
+                        <span className="font-bold">
+                          {result.sysmon_events}
+                        </span>{" "}
+                        Events Captured
                       </div>
                       <div className="text-xs text-emerald-700">
-                        <span className="font-bold">{result.files_collected.length}</span> File Artifacts
+                        <span className="font-bold">
+                          {result.files_collected.length}
+                        </span>{" "}
+                        File Artifacts
                       </div>
                     </div>
                   </div>
@@ -603,9 +665,13 @@ export default function ScanPage() {
                   <IoExpandOutline className="w-4 h-4" />
                 </button>
               )}
-              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                scanState === "running" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"
-              }`}>
+              <span
+                className={`text-xs font-medium px-2.5 py-1 rounded-full ${
+                  scanState === "running"
+                    ? "bg-green-100 text-green-700"
+                    : "bg-slate-100 text-slate-500"
+                }`}
+              >
                 {scanState === "running" ? "Active" : "Inactive"}
               </span>
             </div>
@@ -675,78 +741,97 @@ export default function ScanPage() {
                   </div>
                 )}
               </div>
-              
+
               <h3 className="text-base font-bold text-slate-900 mb-1">
                 {vmInfo?.name || "Windows Sandbox"}
               </h3>
               <p className="text-xs text-slate-500 mb-3">
-                OS: <span className="font-medium text-slate-700">{vmInfo?.os || "Unknown"}</span>
+                OS:{" "}
+                <span className="font-medium text-slate-700">
+                  {vmInfo?.os || "Unknown"}
+                </span>
               </p>
               <p className="text-sm text-slate-500">
                 {scanState === "running" ? (
-                  <span className="text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded-full">Analyzing...</span>
+                  <span className="text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded-full">
+                    Analyzing...
+                  </span>
                 ) : scanState === "idle" ? (
-                  <span className="text-green-600 font-medium">Up and running</span>
+                  <span className="text-green-600 font-medium">
+                    Up and running
+                  </span>
                 ) : scanState === "failed" ? (
-                   <span className="text-red-500 font-medium">Execution Failed</span>
+                  <span className="text-red-500 font-medium">
+                    Execution Failed
+                  </span>
                 ) : (
                   <span className="text-green-600 font-medium">Done</span>
                 )}
               </p>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-2 mb-4">
-              <button 
-                onClick={() => handleVMCtrl("start")} 
-                disabled={vmBusy || scanState === "running" || vmInfo?.state?.includes("running")}
+              <button
+                onClick={() => handleVMCtrl("start")}
+                disabled={
+                  vmBusy ||
+                  scanState === "running" ||
+                  vmInfo?.state?.includes("running")
+                }
                 className="px-2 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded hover:bg-blue-100 disabled:opacity-50 transition-colors"
               >
                 Start VM
               </button>
-              <button 
-                onClick={() => handleVMCtrl("stop")} 
-                disabled={vmBusy || scanState === "running" || !vmInfo?.state?.includes("running")}
+              <button
+                onClick={() => handleVMCtrl("stop")}
+                disabled={
+                  vmBusy ||
+                  scanState === "running" ||
+                  !vmInfo?.state?.includes("running")
+                }
                 className="px-2 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded hover:bg-slate-200 disabled:opacity-50 transition-colors"
               >
                 Stop VM
               </button>
-              <button 
-                onClick={() => handleVMCtrl("reboot")} 
+              <button
+                onClick={() => handleVMCtrl("reboot")}
                 disabled={vmBusy || scanState === "running"}
                 className="px-2 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded hover:bg-slate-200 disabled:opacity-50 transition-colors"
               >
                 Reboot VM
               </button>
-              <button 
-                onClick={() => handleVMCtrl("check")} 
+              <button
+                onClick={() => handleVMCtrl("check")}
                 disabled={vmBusy || scanState === "running"}
                 className="px-2 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-semibold rounded hover:bg-indigo-100 disabled:opacity-50 transition-colors"
               >
                 Check Agent
               </button>
             </div>
-            
+
             <div className="space-y-3 mt-auto pt-4 border-t border-slate-100">
-               <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-500">Agent Status</span>
-                  {scanState === "running" || agentStatus === "Active" ? (
-                     <span className="text-green-600 font-medium flex items-center gap-1.5">
-                       <IoCheckmarkCircle className="w-3.5 h-3.5" />
-                       Active
-                     </span>
-                  ) : agentStatus === "Offline" ? (
-                     <span className="text-red-500 font-medium flex items-center gap-1.5">
-                       <IoCloseCircle className="w-3.5 h-3.5" />
-                       Offline
-                     </span>
-                  ) : (
-                     <span className="text-slate-400">Standby</span>
-                  )}
-               </div>
-               <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-500">VM State</span>
-                  <span className="text-slate-700 font-medium capitalize">{vmInfo?.state || "Unknown"}</span>
-               </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">Agent Status</span>
+                {scanState === "running" || agentStatus === "Active" ? (
+                  <span className="text-green-600 font-medium flex items-center gap-1.5">
+                    <IoCheckmarkCircle className="w-3.5 h-3.5" />
+                    Active
+                  </span>
+                ) : agentStatus === "Offline" ? (
+                  <span className="text-red-500 font-medium flex items-center gap-1.5">
+                    <IoCloseCircle className="w-3.5 h-3.5" />
+                    Offline
+                  </span>
+                ) : (
+                  <span className="text-slate-400">Standby</span>
+                )}
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">VM State</span>
+                <span className="text-slate-700 font-medium capitalize">
+                  {vmInfo?.state || "Unknown"}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -770,16 +855,15 @@ export default function ScanPage() {
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <div className="w-full max-w-6xl w-full h-full flex items-center justify-center relative">
-             <img
-               src={previewSrc}
-               alt="Live VM Screenshot — Fullscreen"
-               className="max-w-full max-h-full object-contain rounded-lg shadow-2xl ring-1 ring-white/10"
-               onError={() => {}}
-             />
+            <img
+              src={previewSrc}
+              alt="Live VM Screenshot — Fullscreen"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl ring-1 ring-white/10"
+              onError={() => {}}
+            />
           </div>
         </div>
       )}
-
     </div>
   );
 }
