@@ -37,6 +37,16 @@ yarn-error.log*
 *~
 screenshots/
 
-# SandboxShare large artifacts
+# SandboxShare artifacts and binaries
 SandboxShare/*.zip
+SandboxShare/*.exe
 SandboxShare/System Volume Information/
+
+# Temporary and archive files
+*.zip
+zi*
+*.bak
+
+# Research paper large binaries
+docs/papers/*.pdf
+

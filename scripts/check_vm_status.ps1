@@ -19,7 +19,6 @@
 #   [08] Sysmon — config loaded
 #   [09] Sysmon — event log active
 #   [10] Procmon — binary present
-#   [11] tshark — binary present & on PATH
 #   [12] FakeNet-NG — installed
 #   [13] Python — embedded distribution
 #   [14] IsoLens Agent — present
@@ -231,24 +230,6 @@ if ($procmonFound) {
     Pass "10" "Procmon binary present" $procmonFound
 } else {
     Fail "10" "Procmon binary present" "Procmon not found in any expected path"
-}
-
-# ─── [11] tshark ───────────────────────────────────────────────────────────
-
-Section "TSHARK / WIRESHARK"
-
-$tsharkExe = Get-Command "tshark" -ErrorAction SilentlyContinue
-if ($tsharkExe) {
-    try {
-        $ver = & tshark --version 2>&1 | Select-Object -First 1
-        Pass "11" "tshark on PATH" "$($tsharkExe.Source) — $ver"
-    } catch {
-        Pass "11" "tshark on PATH" $tsharkExe.Source
-    }
-} elseif (Test-Path "C:\Wireshark\tshark.exe") {
-    Warn "11" "tshark on PATH" "Found at C:\Wireshark\tshark.exe but NOT on PATH — add to PATH"
-} else {
-    Fail "11" "tshark on PATH" "tshark not found — install Wireshark"
 }
 
 # ─── [12] FakeNet-NG ──────────────────────────────────────────────────────

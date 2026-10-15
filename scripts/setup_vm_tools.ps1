@@ -13,14 +13,12 @@
 #   C:\Tools\
 #     Sysmon64.exe          + sysmon_config.xml   (runs as Windows service)
 #     Procmon64.exe
-#     tshark.exe            (via Wireshark silent install)
 #     fakenet\              (FakeNet-NG + Python deps)
 #     screenshot_loop.ps1   (periodic screenshot helper)
 #     isolens_agent.py      (the IsoLens guest agent — copied from SandboxShare)
 #
 # NOTES:
 #   - Windows 7 SP1 64-bit compatible
-#   - Wireshark 3.4.x is the last version supporting Windows 7
 #   - FakeNet-NG requires Python 3 (bundled via embedded distribution)
 #   - After this script completes, reboot and take a clean VM snapshot
 # =============================================================================
@@ -43,8 +41,6 @@ $AGENT_DST        = "$TOOLS_DIR\isolens_agent.py"
 # Download URLs
 $URL_SYSMON       = "https://download.sysinternals.com/files/Sysmon.zip"
 $URL_PROCMON      = "https://download.sysinternals.com/files/ProcessMonitor.zip"
-# Wireshark 3.4.16 — last release supporting Windows 7
-$URL_WIRESHARK    = "https://2.na.dl.wireshark.org/win64/Wireshark-win64-3.4.16.exe"
 $URL_FAKENET      = "https://github.com/mandiant/flare-fakenet-ng/archive/refs/heads/master.zip"
 # Python 3.8 embedded — last CPython supporting Windows 7
 $URL_PYTHON_EMBED = "https://www.python.org/ftp/python/3.8.20/python-3.8.20-embed-amd64.zip"
@@ -223,39 +219,6 @@ $pmon_src = if (Test-Path "$procmon_tmp\Procmon64.exe") { "$procmon_tmp\Procmon6
 Copy-Item $pmon_src "$TOOLS_DIR\Procmon64.exe" -Force
 LogOk "Procmon64.exe → $TOOLS_DIR"
 
-# ─── 3. Wireshark + tshark ─────────────────────────────────────────────────
-
-Log "--- [3/6] Wireshark / tshark ---"
-
-$ws_installer = "$TOOLS_DIR\downloads\Wireshark-win64.exe"
-Download $URL_WIRESHARK $ws_installer
-
-Log "Running Wireshark silent install (this may take a minute)..."
-# /S = silent, /D sets install directory
-Start-Process -FilePath $ws_installer `
-    -ArgumentList "/S", "/D=C:\Wireshark" `
-    -Wait -NoNewWindow
-
-# Add tshark to PATH permanently
-$tshark_path = "C:\Wireshark"
-$current_path = [Environment]::GetEnvironmentVariable("PATH", "Machine")
-if ($current_path -notlike "*Wireshark*") {
-    [Environment]::SetEnvironmentVariable(
-        "PATH",
-        "$current_path;$tshark_path",
-        "Machine"
-    )
-    $env:PATH += ";$tshark_path"
-    LogOk "tshark added to system PATH"
-} else {
-    LogOk "tshark already in PATH"
-}
-
-if (Test-Path "$tshark_path\tshark.exe") {
-    LogOk "tshark.exe found at $tshark_path"
-} else {
-    LogWarn "tshark.exe not found — Wireshark may need manual install"
-}
 
 # ─── 4. Python (Embedded) + pip ────────────────────────────────────────────
 #
@@ -401,7 +364,6 @@ Write-Host ""
 Write-Host "  Installed:" -ForegroundColor White
 Write-Host "    Sysmon64     → $TOOLS_DIR\Sysmon64.exe  (service running)" -ForegroundColor Gray
 Write-Host "    Procmon64    → $TOOLS_DIR\Procmon64.exe" -ForegroundColor Gray
-Write-Host "    tshark       → C:\Wireshark\tshark.exe" -ForegroundColor Gray
 Write-Host "    FakeNet-NG   → $TOOLS_DIR\fakenet\" -ForegroundColor Gray
 Write-Host "    Python 3.8   → $PYTHON_EXE" -ForegroundColor Gray
 Write-Host "    Agent        → $TOOLS_DIR\isolens_agent.py" -ForegroundColor Gray
@@ -410,8 +372,7 @@ Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor White
 Write-Host "    1. Reboot the VM" -ForegroundColor Gray
 Write-Host "    2. Verify: sysmon64 -s  (show Sysmon config)" -ForegroundColor Gray
-Write-Host "    3. Verify: tshark --version" -ForegroundColor Gray
-Write-Host "    4. Take a clean VirtualBox snapshot (e.g. 'Baseline')" -ForegroundColor Gray
+Write-Host "    3. Take a clean VirtualBox snapshot (e.g. 'Baseline')" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  To start the agent:" -ForegroundColor White
 Write-Host "    python C:\Tools\isolens_agent.py --share \\VBOXSVR\SandboxShare" -ForegroundColor Gray

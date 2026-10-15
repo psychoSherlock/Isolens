@@ -121,7 +121,7 @@ Guest-side HTTP service (`isolens_agent.py`) that runs inside the sandbox VM.
 
 - Single-file, stdlib-only Python script (no pip dependencies)
 - HTTP API on the host-only network for receiving commands from the controller
-- Pluggable collector architecture (Sysmon, Procmon, network, FakeNet, screenshots, handle, tcpvcon)
+- Pluggable collector architecture (Sysmon, Procmon, FakeNet, screenshots, handle, tcpvcon)
 - Copies samples from VirtualBox shared folder, executes them via `schtasks /it` (interactive session), collects artifacts
 - Active screenshot capture using PowerShell + System.Drawing (also captured from host via VBoxManage)
 - Packages results as a zip and exports back to SandboxShare for host pickup

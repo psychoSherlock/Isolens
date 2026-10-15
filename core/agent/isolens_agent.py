@@ -558,129 +558,6 @@ class ProcmonCollector(BaseCollector):
         }
 
 
-class NetworkCollector(BaseCollector):
-    """Capture network traffic with tshark (Wireshark CLI).
-
-    tshark is started before sample execution and stopped after.
-    The captured PCAP is parsed into a concise JSON summary with
-    conversations, DNS queries, and HTTP requests.
-    """
-
-    name = "network"
-
-    _TSHARK_PATHS = [
-        r"C:\Program Files\Wireshark\tshark.exe",
-        r"C:\Program Files (x86)\Wireshark\tshark.exe",
-    ]
-
-    def __init__(self, workdir: str) -> None:
-        super().__init__(workdir)
-        self._proc: Optional[subprocess.Popen] = None
-        self._pcap = os.path.join(self.output_dir, "capture.pcap")
-
-    def _find_exe(self) -> Optional[str]:
-        for p in self._TSHARK_PATHS:
-            if os.path.isfile(p):
-                return p
-        return None
-
-    def is_available(self) -> bool:
-        return self._find_exe() is not None
-
-    def start_capture(self) -> bool:
-        """Start background packet capture. Call before sample execution."""
-        exe = self._find_exe()
-        if not exe:
-            return False
-        os.makedirs(self.output_dir, exist_ok=True)
-        try:
-            self._proc = subprocess.Popen(
-                [exe, "-i", "1", "-w", self._pcap, "-q"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            log.info("tshark capture started → %s", self._pcap)
-            return True
-        except Exception as exc:
-            log.warning("tshark start failed: %s", exc)
-            return False
-
-    def stop_capture(self) -> None:
-        """Stop the running capture."""
-        if self._proc:
-            try:
-                self._proc.terminate()
-                self._proc.wait(timeout=10)
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
-            self._proc = None
-        try:
-            subprocess.run(["taskkill", "/f", "/im", "tshark.exe"],
-                           capture_output=True, timeout=10)
-        except Exception:
-            pass
-        log.info("tshark capture stopped")
-
-    def collect(self) -> Dict[str, Any]:
-        exe = self._find_exe()
-        if not exe:
-            return {"collector": self.name, "status": "unavailable", "files": []}
-
-        if not os.path.isfile(self._pcap):
-            return {"collector": self.name, "status": "no_data", "files": []}
-
-        summary_file = os.path.join(self.output_dir, "network_summary.json")
-        summary = self._parse_pcap(exe)
-        with open(summary_file, "w", encoding="utf-8") as fh:
-            json.dump(summary, fh, indent=2)
-        log.info("Network summary → %s", summary_file)
-        return {"collector": self.name, "status": "ok",
-                "files": [summary_file]}
-
-    def _parse_pcap(self, exe: str) -> Dict[str, Any]:
-        """Extract conversations, DNS and HTTP from the captured PCAP."""
-        out: Dict[str, Any] = {}
-        # TCP conversations
-        try:
-            r = subprocess.run(
-                [exe, "-r", self._pcap, "-q", "-z", "conv,tcp"],
-                capture_output=True, text=True, timeout=60)
-            if r.returncode == 0:
-                out["tcp_conversations"] = r.stdout.strip()
-        except Exception as e:
-            out["tcp_error"] = str(e)
-        # DNS queries
-        try:
-            r = subprocess.run(
-                [exe, "-r", self._pcap, "-Y", "dns.qry.name",
-                 "-T", "fields", "-e", "dns.qry.name"],
-                capture_output=True, text=True, timeout=60)
-            if r.returncode == 0:
-                out["dns_queries"] = sorted(set(
-                    q for q in r.stdout.strip().split("\n") if q))
-        except Exception as e:
-            out["dns_error"] = str(e)
-        # HTTP requests
-        try:
-            r = subprocess.run(
-                [exe, "-r", self._pcap, "-Y", "http.request",
-                 "-T", "fields", "-e", "http.host",
-                 "-e", "http.request.uri", "-e", "http.request.method"],
-                capture_output=True, text=True, timeout=60)
-            if r.returncode == 0 and r.stdout.strip():
-                reqs = []
-                for line in r.stdout.strip().split("\n"):
-                    parts = line.split("\t")
-                    if len(parts) >= 3:
-                        reqs.append({"host": parts[0], "uri": parts[1],
-                                     "method": parts[2]})
-                out["http_requests"] = reqs
-        except Exception as e:
-            out["http_error"] = str(e)
-        return out
-
 
 class ScreenshotCollector(BaseCollector):
     """Active screenshot capture during sample execution.
@@ -934,7 +811,6 @@ class IsoLensAgent:
         self.collectors: List[BaseCollector] = [
             SysmonCollector(workdir),
             ProcmonCollector(workdir),
-            NetworkCollector(workdir),
             ScreenshotCollector(workdir),
             TcpvconCollector(workdir),
             HandleCollector(workdir),
@@ -1075,15 +951,6 @@ class IsoLensAgent:
             except Exception as exc:
                 log.warning("Failed to start Procmon: %s", exc)
 
-            # 2c. Start tshark for packet capture
-            network_c = None
-            for _c in self.collectors:
-                if _c.name == "network" and hasattr(_c, "start_capture"):
-                    network_c = _c
-                    break
-            if network_c:
-                network_c.start_capture()
-
             # 3. Execute sample in the interactive session
             #    Using schtasks /it so GUI windows appear on the desktop
             #    (visible to VBoxManage screenshots from the host).
@@ -1157,8 +1024,6 @@ class IsoLensAgent:
             # 4b. Stop captures (flush data before collecting)
             if screenshot_c:
                 screenshot_c.stop_capture()
-            if network_c:
-                network_c.stop_capture()
 
             # 5. Collect artifacts (sample-filtered)
             self.state.set_collecting()

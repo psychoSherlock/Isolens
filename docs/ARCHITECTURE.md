@@ -34,7 +34,6 @@ Guest-side HTTP service (`isolens_agent.py`) running inside the sandbox VM. Uses
 
 - **SysmonCollector** — Exports Sysmon event logs (XML + text) via `wevtutil`
 - **ProcmonCollector** — Collects Process Monitor CSV logs
-- **NetworkCollector** — Gathers network captures via tshark
 - **FakeNetCollector** — Collects FakeNet-NG logs and PCAPs
 - **ScreenshotCollector** — Gathers screenshots taken during execution
 - **TcpvconCollector** — Snapshots active TCP/UDP connections via `tcpvcon64`
