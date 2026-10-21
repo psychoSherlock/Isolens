@@ -366,3 +366,19 @@ Retrieve a previously generated AI threat analysis report (JSON).
 ```bash
 curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/ai-report
 ```
+
+## Get AI Analysis Progress
+
+Retrieve live progress for an ongoing AI threat analysis.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/ai-progress
+```
+
+## Get YARA Analysis Report
+
+Retrieve YARA static pattern detection findings and matched capability signatures for an analysis.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/yara
+```

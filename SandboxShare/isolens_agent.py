@@ -489,6 +489,34 @@ class ProcmonCollector(BaseCollector):
         sample_count = 0
         total_count = 0
 
+        sensitive_file_reads: List[str] = []
+        general_file_reads: List[str] = []
+        sensitive_reg_queries: List[str] = []
+        general_reg_queries: List[str] = []
+
+        # Sensitive target heuristics for read prioritization
+        _SENSITIVE_FILE_INDICATORS = (
+            r"\desktop", r"\documents", r"\downloads", r"\pictures", r"\videos",
+            r"\user data", r"\mozilla\firefox", r"\opera software",
+            r"\.ssh", r"\.aws", r"\.azure", r"\.kube", r"\.git-credentials",
+            r"\bitcoin", r"\ethereum", r"\exodus", r"\atomic", r"\electrum", "wallet.dat",
+            r"\config\sam", r"\config\system", r"\config\security", r"\drivers\etc\hosts",
+            r"\1password", r"\bitwarden", r"\keepass", ".kdbx", ".key", ".pem", ".rdp", ".ovpn",
+            r"\appdata\local\temp", r"\appdata\roaming", r"\samples",
+        )
+        _BENIGN_SYSTEM_PREFIXES = (
+            r"c:\windows\system32", r"c:\windows\syswow64", r"c:\windows\microsoft.net",
+            r"c:\windows\assembly", r"c:\windows\winsxs", r"c:\windows\globalization",
+            r"c:\windows\fonts", r"c:\windows\prefetch",
+        )
+        _SENSITIVE_REG_INDICATORS = (
+            r"\currentversion\run", r"\currentversion\runonce", r"\startupapproved",
+            r"\windows defender", r"\antivirusproduct", r"\firewallpolicy", r"\securityhealth",
+            r"\policies\system", r"\winlogon", r"\internet settings",
+            r"\systembiosversion", r"\videobiosversion", r"\centralprocessor",
+            r"\cryptography\machineguid", r"\currentcontrolset\services",
+        )
+
         try:
             with open(csv_path, "r", encoding="utf-8-sig",
                        errors="replace") as fh:
@@ -509,12 +537,26 @@ class ProcmonCollector(BaseCollector):
                                              "Read", "Close", "Delete",
                                              "Directory", "Flush")):
                         bucket = file_ops.setdefault(op, [])
-                        if path not in bucket and len(bucket) < 80:
-                            bucket.append(path)
+                        if path and path not in bucket:
+                            if "Read" in op:
+                                path_lower = path.lower()
+                                if any(ind in path_lower for ind in _SENSITIVE_FILE_INDICATORS) and path not in sensitive_file_reads and len(sensitive_file_reads) < 80:
+                                    sensitive_file_reads.append(path)
+                                elif not any(path_lower.startswith(pre) for pre in _BENIGN_SYSTEM_PREFIXES) and path not in general_file_reads and len(general_file_reads) < 50:
+                                    general_file_reads.append(path)
+                            if len(bucket) < 80:
+                                bucket.append(path)
                     elif "Reg" in op:
                         bucket = reg_ops.setdefault(op, [])
-                        if path not in bucket and len(bucket) < 80:
-                            bucket.append(path)
+                        if path and path not in bucket:
+                            if any(k in op for k in ("QueryValue", "OpenKey", "QueryKey", "EnumerateValue", "EnumerateKey")):
+                                path_lower = path.lower()
+                                if any(ind in path_lower for ind in _SENSITIVE_REG_INDICATORS) and path not in sensitive_reg_queries and len(sensitive_reg_queries) < 80:
+                                    sensitive_reg_queries.append(path)
+                                elif path not in general_reg_queries and len(general_reg_queries) < 50:
+                                    general_reg_queries.append(path)
+                            if len(bucket) < 80:
+                                bucket.append(path)
                     elif any(k in op for k in ("TCP", "UDP")):
                         if len(net_ops) < 50:
                             net_ops.append({"op": op, "path": path,
@@ -528,12 +570,19 @@ class ProcmonCollector(BaseCollector):
             log.warning("Procmon CSV parse error: %s", exc)
             return {"parse_error": str(exc)}
 
-        # Keep only interesting (write/create/delete) operations
+        # Build notable operations: writes, creates, deletes, AND sensitive reads
         interesting_file = {}
         for op, paths in file_ops.items():
             if any(k in op for k in ("Write", "Create", "Delete",
                                      "SetDisposition", "SetRename")):
                 interesting_file[op] = paths
+
+        # Populate notable ReadFile: sensitive reads first, followed by general reads
+        combined_file_reads = sensitive_file_reads + [p for p in general_file_reads if p not in sensitive_file_reads]
+        if combined_file_reads:
+            interesting_file["ReadFile"] = combined_file_reads[:80]
+        elif "ReadFile" in file_ops:
+            interesting_file["ReadFile"] = file_ops["ReadFile"][:80]
 
         interesting_reg = {}
         for op, paths in reg_ops.items():
@@ -541,16 +590,25 @@ class ProcmonCollector(BaseCollector):
                                      "DeleteKey", "DeleteValue")):
                 interesting_reg[op] = paths
 
+        # Populate notable RegQueryValue: sensitive queries first, followed by general queries
+        combined_reg_queries = sensitive_reg_queries + [p for p in general_reg_queries if p not in sensitive_reg_queries]
+        if combined_reg_queries:
+            interesting_reg["RegQueryValue"] = combined_reg_queries[:80]
+        elif "RegQueryValue" in reg_ops:
+            interesting_reg["RegQueryValue"] = reg_ops["RegQueryValue"][:80]
+
         return {
             "sample_process": self._sample_proc or "unknown",
             "total_rows": total_count,
             "sample_events": sample_count,
             "file_activity": {
                 "notable": interesting_file,
+                "sensitive_reads": sensitive_file_reads,
                 "all_ops": {o: len(p) for o, p in file_ops.items()},
             },
             "registry_activity": {
                 "notable": interesting_reg,
+                "sensitive_queries": sensitive_reg_queries,
                 "all_ops": {o: len(p) for o, p in reg_ops.items()},
             },
             "network_activity": net_ops,

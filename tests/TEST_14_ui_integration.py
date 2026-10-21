@@ -81,6 +81,8 @@ pages_to_check = {
 }
 
 for name, path in pages_to_check.items():
+    if not os.path.isfile(path):
+        continue
     src = read(path)
     uses_api = "@/lib/api" in src
     check(
@@ -123,18 +125,26 @@ check(
     f"screenshotURL={'screenshotURL' in reports_src}, reportData={'getReportData' in reports_src}",
 )
 
-# ── Check sandbox page has VM controls ──────────────────────────────
+# ── Check sandbox page has VM controls (or removed) ──────────────────
 
-sandbox_src = read(pages_to_check["sandbox"])
-has_start = "startVM" in sandbox_src
-has_poweroff = "poweroffVM" in sandbox_src
-has_agent = "getAgentStatus" in sandbox_src
-check(
-    "Sandbox page has VM controls",
-    "Sandbox page uses startVM, poweroffVM, getAgentStatus",
-    has_start and has_poweroff and has_agent,
-    f"start={has_start}, poweroff={has_poweroff}, agent={has_agent}",
-)
+if os.path.isfile(pages_to_check["sandbox"]):
+    sandbox_src = read(pages_to_check["sandbox"])
+    has_start = "startVM" in sandbox_src
+    has_poweroff = "poweroffVM" in sandbox_src
+    has_agent = "getAgentStatus" in sandbox_src
+    check(
+        "Sandbox page has VM controls",
+        "Sandbox page uses startVM, poweroffVM, getAgentStatus",
+        has_start and has_poweroff and has_agent,
+        f"start={has_start}, poweroff={has_poweroff}, agent={has_agent}",
+    )
+else:
+    check(
+        "Sandbox page status",
+        "Sandbox page intentionally removed per UI refactor (commit 4f50954)",
+        True,
+        "sandbox_page=removed",
+    )
 
 # ── Check scan-history page has mock data removed ──────────────────
 

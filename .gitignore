@@ -50,3 +50,23 @@ zi*
 # Research paper large binaries
 docs/papers/*.pdf
 
+# AI implementation virtualenvs, outputs, and dataset clone
+ai-implementation/.venv*/
+ai-implementation/output/
+ai-implementation/Laboratory2/
+ai-implementation/synthetic-augmentation/data/
+ai-implementation/synthetic-augmentation/output/
+
+# Test executables and raw logs
+test/**/*.exe
+test/**/*.csv
+test/**/*.xml
+test/**/*.pml
+
+# Large raw blacklist / intelligence dumps
+data/
+
+
+
+
+

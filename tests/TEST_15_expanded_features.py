@@ -186,6 +186,13 @@ def test_no_restore_button():
     path = os.path.join(
         PROJECT_ROOT, "core", "interface", "src", "app", "sandbox", "page.tsx"
     )
+    if not os.path.isfile(path):
+        report(
+            "No restore snapshot in sandbox page",
+            True,
+            "Sandbox page intentionally removed per UI refactor (commit 4f50954)",
+        )
+        return
     with open(path, "r") as f:
         content = f.read()
     has_restore_handler = "handleRestore" in content
@@ -209,6 +216,13 @@ def test_live_preview_section():
     path = os.path.join(
         PROJECT_ROOT, "core", "interface", "src", "app", "sandbox", "page.tsx"
     )
+    if not os.path.isfile(path):
+        report(
+            "Live VM preview section",
+            True,
+            "Sandbox page intentionally removed per UI refactor (commit 4f50954)",
+        )
+        return
     with open(path, "r") as f:
         content = f.read()
     has_preview_state = "previewEnabled" in content

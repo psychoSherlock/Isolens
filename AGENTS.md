@@ -94,6 +94,14 @@ Contains expandable submodules such as:
 - YARA rule generation
 - Pattern detection utilities
 - VBoxManage output parsing
+- Procmon-to-API sequence translation (Procmon-to-LSTM bridge)
+- LSTM sequential behavioral inference
+- Network telemetry normalization and OS noise filtering (DNS & HTTP)
+- Streaming threat intelligence feed ingestion (`build_threat_intel_db.py`)
+- Deterministic network threat intelligence matching (`network_db_matcher.py`)
+- Filesystem & registry behavioral normalization, sensitive target extraction, and MITRE mapping (`behavior_normalizer.py`)
+- Static YARA pattern matching and capability detection (`yara_scanner.py`)
+
 
 This layer converts raw monitoring data into structured findings.
 
@@ -148,33 +156,38 @@ AI-assisted intelligence layer:
 - MITRE ATT&CK technique mapping
 - IOC extraction and deduplication
 
-All AI calls are pinned to the **gpt-5-mini** model for consistent behavior and lower token costs.
+AI calls route through an intelligent 3-tier cascade fallback router:
+1. **Tier 1 (Primary)**: **NVIDIA NIM API** (`meta/llama-3.3-70b-instruct` via OpenAI-compatible endpoint `https://integrate.api.nvidia.com/v1`)
+2. **Tier 2 (Fallback)**: **Google Gemini API** (`gemini-2.0-flash` via Generative Language API)
+3. **Tier 3 (Last Fallback)**: **GitHub Copilot SDK** (`gpt-5-mini` local session)
 
 ### Multi-Agent Analysis Pipeline
 
-The pipeline uses specialised per-tool agents that each receive minimal data (reducing token usage) and return structured XML:
+The pipeline uses specialised per-tool agents that each receive minimal data (reducing token usage) and return structured JSON:
 
 | Agent | Input | Purpose |
 |---|---|---|
 | `sysmon-analyzer` | Sysmon event summary | Detect process injection, LOLBin abuse, persistence |
 | `procmon-analyzer` | Procmon summary JSON | Detect file/registry/process suspicious activity |
-| `network-analyzer` | Network capture summary | Detect C2, beaconing, exfiltration |
+| `network-analyzer` | Network telemetry & IOCs | Deterministic local threat DB matching (C2, malware downloads, compromised IPs) — zero AI token consumption |
 | `handle-analyzer` | Handle snapshot text | Detect mutex, sensitive file handles |
 | `tcpvcon-analyzer` | TCPVcon CSV snapshot | Detect active malicious connections |
 | `metadata-analyzer` | Execution metadata | Detect sandbox evasion, anomalies |
-| `threat-summarizer` | All per-tool XMLs | Final risk score, classification, MITRE mapping |
+| `threat-summarizer` | All per-tool JSONs | Final risk score, classification, MITRE mapping |
 
 ### Files
 
-- `copilot_agents.py` — Per-tool analyst agents + threat-summarizer with XML schema contracts
+- `ai_router.py` — Multi-provider AI router with automated 3-tier cascade (NVIDIA NIM → Gemini Flash → Copilot)
+- `copilot_agents.py` — Per-tool analyst agents + threat-summarizer with JSON schema contracts
 - `copilot_service.py` — Async Copilot SDK wrapper (gpt-5-mini enforced)
 - `copilot_cli.py` — CLI for auth-status, list-agents, list-models, chat
-- `threat_analyzer.py` — Pipeline orchestrator: loads report data → dispatches to agents → collects XML → calls summarizer → saves results
+- `threat_analyzer.py` — Pipeline orchestrator: loads report data → dispatches deterministic network DB lookups + AI tool agents → synthesizes via threat-summarizer → saves results
 
 ### Gateway Endpoints
 
 - `POST /api/analysis/report/{id}/ai-analyze` — Run AI analysis pipeline
 - `GET  /api/analysis/report/{id}/ai-report`  — Retrieve saved AI report
+- `GET  /api/analysis/report/{id}/yara`       — Retrieve YARA static pattern detection findings
 
 This layer operates on structured findings from collector artifacts, not raw logs.
 
@@ -185,10 +198,11 @@ Persistent storage layer.
 
 ### Subdirectories:
 
-- `database/` → SQLite or structured data store
+- `database/` → SQLite or structured data store (including `network_threat_intel.db` for offline IOC matching)
 - `samples/` → Uploaded suspicious files
 - `logs/` → Raw execution logs
 - `reports/` → Final analysis outputs
+- `yara_rules/` → Curated YARA detection rulesets for packers, evasion, and capabilities
 
 No business logic must exist here.
 

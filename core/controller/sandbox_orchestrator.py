@@ -193,6 +193,24 @@ class SandboxOrchestrator:
             shutil.copy2(sample_path, stored)
             log.info("[1/5] Sample archived: %s", stored)
 
+            # Step 1b: YARA signature & capability scan
+            try:
+                from core.modules.yara_scanner import scan_file_with_yara
+                yara_res = scan_file_with_yara(sample_path)
+                yara_dir = os.path.join(report_dir, "artifacts", "yara")
+                os.makedirs(yara_dir, exist_ok=True)
+                yara_out = os.path.join(yara_dir, "yara_summary.json")
+                with open(yara_out, "w", encoding="utf-8") as yfh:
+                    json.dump(yara_res, yfh, indent=2)
+                result.files_collected.append(os.path.relpath(yara_out, report_dir))
+                log.info(
+                    "YARA scan: %d matches found (threat level: %s)",
+                    yara_res.get("matched_rules_count", 0),
+                    yara_res.get("threat_level", "none"),
+                )
+            except Exception as yexc:
+                log.warning("YARA scan skipped: %s", yexc)
+
             # Step 2: Copy sample to shared folder so the agent can see it
             share_dest = os.path.join(self.share_dir, sample_name)
             shutil.copy2(sample_path, share_dest)

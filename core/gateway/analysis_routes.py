@@ -340,6 +340,7 @@ def get_report_data(analysis_id: str):
     data = {
         "manifest": _read_json(os.path.join(report_dir, "analysis_manifest.json")),
         "metadata": _read_json(os.path.join(artifacts_dir, "metadata.json")),
+        "yara": _read_json(os.path.join(artifacts_dir, "yara", "yara_summary.json")),
         "sysmon": _read_json(os.path.join(artifacts_dir, "sysmon", "sysmon_summary.json")),
         "procmon": _read_json(os.path.join(artifacts_dir, "procmon", "procmon_summary.json")),
         "network": _read_json(os.path.join(artifacts_dir, "network", "network_summary.json")),
@@ -434,3 +435,17 @@ def get_ai_progress(analysis_id: str) -> StandardResponse:
             pass
             
     return _ok({"status": "pending", "current_action": "Waiting to start...", "completed_agents": 0, "total_agents": 0})
+
+
+@router.get("/report/{analysis_id}/yara", response_model=StandardResponse)
+def get_report_yara(analysis_id: str) -> StandardResponse:
+    """Retrieve YARA static pattern and signature analysis for a report."""
+    safe_id = os.path.basename(analysis_id)
+    report_dir = os.path.join(DEFAULT_REPORTS_DIR, safe_id)
+    if not os.path.isdir(report_dir):
+        return _error("Report not found", details=f"No directory for {safe_id}")
+
+    from core.modules.yara_scanner import YaraScanner
+    scanner = YaraScanner()
+    result = scanner.scan_report_directory(report_dir)
+    return _ok(result)

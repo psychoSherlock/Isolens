@@ -45,7 +45,7 @@ Communicates file transfers via VirtualBox Shared Folder (`SandboxShare/`).
 
 ### `core/modules/`
 
-Functional processing layer for parsing logs, extracting IOCs, risk scoring, and parsing VBoxManage outputs.
+Functional processing layer for parsing logs, extracting IOCs, risk scoring, parsing VBoxManage outputs, bridging Procmon logs to LSTM sequential behavioral inference, and normalizing network telemetry with OS background noise filtering.
 
 ### `core/observer/`
 
@@ -55,19 +55,23 @@ Monitoring layer that collects raw data from the host perspective (process track
 
 AI-assisted layer that provides threat classification, risk scoring, and natural language summaries.
 
-All AI calls are pinned to the **gpt-5-mini** model for consistent behavior and lower token costs.
+AI calls route through an automated 3-tier cascade fallback router:
+1. **Tier 1 (Primary)**: **NVIDIA NIM API** (`meta/llama-3.3-70b-instruct` via OpenAI-compatible endpoint `https://integrate.api.nvidia.com/v1`)
+2. **Tier 2 (Fallback)**: **Google Gemini API** (`gemini-2.0-flash` via Generative Language API)
+3. **Tier 3 (Last Fallback)**: **GitHub Copilot SDK** (`gpt-5-mini` local session)
 
-Contains a multi-agent Copilot SDK analysis pipeline:
+Contains a multi-agent AI analysis pipeline:
 
-- **`copilot_agents.py`** — per-tool analyst agents and a final threat-summarizer agent. Each agent receives one collector's data and returns structured XML. Agents: `sysmon-analyzer`, `procmon-analyzer`, `network-analyzer`, `handle-analyzer`, `tcpvcon-analyzer`, `metadata-analyzer`, `threat-summarizer`.
+- **`ai_router.py`** — multi-provider AI router with automated 3-tier cascade fallback across NVIDIA NIM, Gemini Flash, and Copilot SDK.
+- **`copilot_agents.py`** — per-tool analyst agents and a final threat-summarizer agent. Each agent receives one collector's data and returns structured JSON. Agents: `sysmon-analyzer`, `procmon-analyzer`, `network-analyzer`, `handle-analyzer`, `tcpvcon-analyzer`, `metadata-analyzer`, `threat-summarizer`.
 - **`copilot_service.py`** — async service wrapper for auth, model listing, and agent-targeted chat. Enforces `gpt-5-mini` model.
 - **`copilot_cli.py`** — CLI for `auth-status`, `list-agents`, `list-models`, and `chat`.
 - **`threat_analyzer.py`** — orchestrates the full AI analysis pipeline:
   1. Reads each collector's data from a report directory
-  2. Sends each payload to its specialised Copilot agent
-  3. Collects structured XML responses
-  4. Feeds all per-tool XMLs to the `threat-summarizer` agent
-  5. Parses the final `<threat_report>` XML for risk score, classification, IOCs, MITRE ATT&CK mappings, and recommendations
+  2. Sends each payload to its specialised agent via the AI router
+  3. Collects structured JSON responses
+  4. Feeds all per-tool JSONs to the `threat-summarizer` agent
+  5. Parses the final JSON for risk score, classification, IOCs, MITRE ATT&CK mappings, and recommendations
   6. Saves everything to `<report_dir>/ai_analysis/`
 
 Gateway endpoints:

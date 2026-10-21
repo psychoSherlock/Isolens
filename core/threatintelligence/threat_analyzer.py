@@ -53,6 +53,7 @@ class ToolAnalysisResult:
 
     tool: str
     agent_name: str
+    provider: str = ""
     raw_response: str = ""
     verdict: str = "inconclusive"
     confidence: int = 0
@@ -67,6 +68,7 @@ class ToolAnalysisResult:
         return {
             "tool": self.tool,
             "agent_name": self.agent_name,
+            "provider": self.provider,
             "verdict": self.verdict,
             "confidence": self.confidence,
             "findings_count": self.findings_count,
@@ -85,6 +87,7 @@ class ThreatAnalysisReport:
 
     analysis_id: str
     model: str = ""
+    provider: str = ""
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     status: str = "pending"          # pending | running | complete | failed
@@ -109,6 +112,7 @@ class ThreatAnalysisReport:
         return {
             "analysis_id": self.analysis_id,
             "model": self.model,
+            "provider": self.provider,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "status": self.status,
@@ -446,6 +450,7 @@ def _load_tcpvcon(report_dir: str) -> tuple[str, bool]:
 def _load_metadata(report_dir: str) -> tuple[str, bool]:
     data = _read_json(os.path.join(report_dir, "artifacts", "metadata.json"))
     manifest = _read_json(os.path.join(report_dir, "analysis_manifest.json"))
+    yara_data = _read_json(os.path.join(report_dir, "artifacts", "yara", "yara_summary.json"))
     combined: dict[str, Any] = {}
     if manifest:
         combined["manifest"] = {
@@ -459,6 +464,14 @@ def _load_metadata(report_dir: str) -> tuple[str, bool]:
         }
     if data:
         combined["metadata"] = data
+    if yara_data:
+        combined["yara_scan"] = {
+            "matched_rules_count": yara_data.get("matched_rules_count", 0),
+            "threat_level": yara_data.get("threat_level", "none"),
+            "tags": yara_data.get("tags", []),
+            "matches": yara_data.get("matches", []),
+            "mitre_attack": yara_data.get("mitre_attack", []),
+        }
     if not combined:
         return "No metadata available for this analysis.", False
     return _truncate_json(combined), True
@@ -498,8 +511,8 @@ class ThreatAnalyzer:
 
     def _get_service(self) -> Any:
         if self._service is None:
-            from .copilot_service import ThreatIntelCopilotService
-            self._service = ThreatIntelCopilotService(
+            from .ai_router import ThreatIntelAIRouter
+            self._service = ThreatIntelAIRouter(
                 working_directory=str(_PROJECT_ROOT),
             )
         return self._service
@@ -572,12 +585,13 @@ class ThreatAnalyzer:
                     prompt=prompt,
                     timeout=120.0,
                 )
+                result.provider = resp.get("provider", "")
                 raw = _clean_json_response(resp.get("response", ""))
                 result.raw_response = raw
                 _parse_tool_json(raw, result)
                 log.info(
-                    "Agent %s → verdict=%s confidence=%d findings=%d",
-                    agent_def.name, result.verdict, result.confidence, result.findings_count,
+                    "Agent %s (via %s) → verdict=%s confidence=%d findings=%d",
+                    agent_def.name, result.provider or "copilot", result.verdict, result.confidence, result.findings_count,
                 )
                 
                 progress_state["completed_agents"] += 1
@@ -605,8 +619,54 @@ class ThreatAnalyzer:
             if loader is None:
                 continue
 
-            payload_text, has_data = loader(report_dir)
             tool_name = agent_def.name.replace("-analyzer", "")
+
+            # Bypassing AI for networking: use deterministic local Threat Intel DB lookups
+            if agent_def.name == "network-analyzer":
+                try:
+                    from core.modules.network_db_matcher import analyze_report_network_with_db
+                    net_res = analyze_report_network_with_db(report_dir)
+                    net_result = ToolAnalysisResult(
+                        tool="network",
+                        agent_name=agent_def.name,
+                        provider="local_threat_db",
+                        verdict=net_res.get("verdict", "inconclusive"),
+                        confidence=net_res.get("confidence", 0),
+                        findings=net_res.get("findings", []),
+                        findings_count=len(net_res.get("findings", [])),
+                        iocs=net_res.get("iocs", []),
+                        iocs_count=len(net_res.get("iocs", [])),
+                        summary=net_res.get("summary", ""),
+                        raw_response=json.dumps(net_res),
+                    )
+                    tool_responses["network"] = net_result.raw_response
+                    report.tool_results.append(net_result)
+                    log.info(
+                        "Network intelligence (via local_threat_db) -> verdict=%s confidence=%d findings=%d",
+                        net_result.verdict, net_result.confidence, net_result.findings_count,
+                    )
+                except Exception as exc:
+                    log.warning("Local network threat DB lookup failed: %s", exc)
+                    fallback = {
+                        "tool": "network",
+                        "verdict": "inconclusive",
+                        "confidence": 0,
+                        "findings": [],
+                        "iocs": [],
+                        "summary": f"Network threat DB lookup error: {exc}",
+                    }
+                    net_result = ToolAnalysisResult(
+                        tool="network",
+                        agent_name=agent_def.name,
+                        provider="local_threat_db",
+                        error=str(exc),
+                        raw_response=json.dumps(fallback),
+                    )
+                    tool_responses["network"] = net_result.raw_response
+                    report.tool_results.append(net_result)
+                continue
+
+            payload_text, has_data = loader(report_dir)
 
             if not has_data:
                 result = ToolAnalysisResult(
@@ -630,7 +690,9 @@ class ThreatAnalyzer:
 
             parallel_tasks.append((agent_def, tool_name, payload_text))
 
-        progress_state["total_agents"] = len(parallel_tasks) + 1 # +1 for summarizer
+        progress_state["completed_agents"] = 1  # Local network DB lookup completed instantly
+        progress_state["total_agents"] = len(parallel_tasks) + 2  # +1 network DB, +1 summarizer
+        progress_state["current_action"] = "Network DB matched. Dispatching remaining tool agents..."
         _write_progress(report_dir, progress_state)
 
         # Run all agents WITH data in parallel
@@ -696,12 +758,15 @@ class ThreatAnalyzer:
                 prompt=summary_prompt,
                 timeout=120.0,
             )
+            report.provider = resp.get("provider", "")
+            if resp.get("model"):
+                report.model = resp.get("model")
             raw_summary = _clean_json_response(resp.get("response", ""))
             report.raw_summary = raw_summary
             _parse_summary_json(raw_summary, report)
             log.info(
-                "Threat summary → risk=%d level=%s type=%s",
-                report.risk_score, report.threat_level, report.malware_type,
+                "Threat summary (via %s) → risk=%d level=%s type=%s",
+                report.provider or "copilot", report.risk_score, report.threat_level, report.malware_type,
             )
             
             progress_state["completed_agents"] += 1
