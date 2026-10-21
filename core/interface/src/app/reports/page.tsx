@@ -1314,6 +1314,109 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
+function ReportOverview({
+  report,
+  data,
+  aiReport,
+}: {
+  report: AnalysisResult;
+  data: ReportData | null;
+  aiReport: AIReport | null;
+}) {
+  const activity = [
+    { label: "System activity", value: data?.sysmon?.sample_events ?? 0, color: "bg-violet-500" },
+    { label: "File and app activity", value: data?.procmon?.sample_events ?? 0, color: "bg-indigo-400" },
+    { label: "Network lookups", value: (data?.network?.dns_queries?.length ?? 0) + (data?.network?.http_requests?.length ?? 0), color: "bg-teal-500" },
+    { label: "Files collected", value: report.files_collected?.length ?? 0, color: "bg-amber-400" },
+  ];
+  const maxActivity = Math.max(...activity.map((item) => item.value), 1);
+  const riskColor = !aiReport
+    ? "text-slate-500"
+    : aiReport.risk_score >= 70
+      ? "text-rose-700"
+      : aiReport.risk_score >= 40
+        ? "text-amber-700"
+        : "text-emerald-700";
+
+  return (
+    <div className="space-y-5" aria-label="Report overview">
+      <section className="rounded-2xl border border-violet-100 bg-gradient-to-br from-white via-white to-violet-50 p-6 md:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">At a glance</p>
+        <h3 className="mt-2 text-xl font-semibold text-slate-900">What happened to this sample?</h3>
+        {aiReport?.executive_summary ? (
+          <p className="mt-3 max-w-4xl text-[15px] leading-7 text-slate-700">{aiReport.executive_summary}</p>
+        ) : (
+          <p className="mt-3 max-w-4xl text-[15px] leading-7 text-slate-600">
+            {data
+              ? "The sandbox finished collecting activity from this file. Review the activity chart below for a quick summary. An automated threat verdict is not available yet."
+              : "Select a completed report to see the activity collected while the sample ran. An automated threat verdict is only shown after AI analysis is run."}
+          </p>
+        )}
+        {aiReport ? (
+          <div className="mt-6 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <span className="text-sm font-medium text-slate-600">Automated assessment</span>
+            <span className={`text-sm font-bold capitalize ${riskColor}`}>{aiReport.threat_level || "Assessment complete"}</span>
+            <div className="h-2 min-w-32 flex-1 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={`Risk score ${aiReport.risk_score} out of 100`}>
+              <div className={`h-full rounded-full ${aiReport.risk_score >= 70 ? "bg-rose-500" : aiReport.risk_score >= 40 ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, Math.max(0, aiReport.risk_score))}%` }} />
+            </div>
+            <span className={`text-sm font-bold tabular-nums ${riskColor}`}>{aiReport.risk_score}/100</span>
+          </div>
+        ) : (
+          <p className="mt-5 inline-flex rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">AI assessment not run</p>
+        )}
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(250px,0.8fr)]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">Activity collected</h3>
+              <p className="mt-1 text-sm text-slate-500">A count of the different activity the sandbox recorded.</p>
+            </div>
+            <IoAnalyticsOutline className="mt-0.5 h-5 w-5 text-violet-500" aria-hidden="true" />
+          </div>
+          {data ? (
+            <div className="mt-6 space-y-5">
+              {activity.map((item) => (
+                <div key={item.label}>
+                  <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-slate-700">{item.label}</span>
+                    <span className="font-semibold tabular-nums text-slate-900">{item.value.toLocaleString()}</span>
+                  </div>
+                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={`${item.label}: ${item.value}`}>
+                    <div className={`h-full rounded-full ${item.color} transition-[width] duration-500`} style={{ width: `${item.value ? Math.max(3, (item.value / maxActivity) * 100) : 0}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-6 rounded-xl bg-slate-50 px-4 py-5 text-sm leading-6 text-slate-600">Activity details are not available for this report.</p>
+          )}
+          <p className="mt-5 border-t border-slate-100 pt-4 text-xs leading-5 text-slate-500">These counts show recorded activity, not a threat score. A higher count alone does not mean a file is malicious.</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h3 className="text-base font-semibold text-slate-900">Scan details</h3>
+          <dl className="mt-4 divide-y divide-slate-100">
+            <div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-slate-500">Result</dt><dd className="font-medium capitalize text-slate-800">{report.status}</dd></div>
+            <div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-slate-500">Run time</dt><dd className="font-medium text-slate-800">{report.timeout}s</dd></div>
+            <div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-slate-500">Screenshots</dt><dd className="font-medium tabular-nums text-slate-800">{data?.screenshots?.length ?? 0}</dd></div>
+            <div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-slate-500">AI review</dt><dd className="font-medium text-slate-800">{aiReport ? "Complete" : "Not run"}</dd></div>
+          </dl>
+          {aiReport?.key_findings?.length ? (
+            <div className="mt-4 rounded-xl bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">{aiReport.key_findings.length} notable finding{aiReport.key_findings.length === 1 ? "" : "s"}</p>
+              <p className="mt-1 text-xs leading-5 text-amber-800">Open the AI analysis for details and recommended next steps.</p>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <p className="px-1 text-xs leading-5 text-slate-500">This report describes behavior observed in an isolated sandbox. Treat the automated assessment as guidance and review the evidence before making decisions.</p>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    AI ANALYSIS TAB CONTENT
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1873,7 +1976,7 @@ export default function ReportsPage() {
   const [aiProgress, setAiProgress] = useState<AIProgress | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<"report" | "ai">("report");
+  const [activeTab, setActiveTab] = useState<"overview" | "evidence" | "ai">("overview");
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1924,7 +2027,7 @@ export default function ReportsPage() {
     setAiProgress(null);
     setAiError(null);
     setDetailLoading(true);
-    setActiveTab("report");
+    setActiveTab("overview");
     try {
       const resp = await getReportData(report.analysis_id);
       if (resp.status === "ok" && resp.data) {
@@ -2276,13 +2379,13 @@ export default function ReportsPage() {
                   {/* Stats row */}
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
                     <MiniStat
-                      label="Timeout"
+                    label="Run time"
                       value={`${selected.timeout}s`}
                       icon={<IoTimeOutline className="w-4 h-4" />}
                       accent="blue"
                     />
                     <MiniStat
-                      label="Sysmon Events"
+                      label="System activity"
                       value={
                         rd?.sysmon?.sample_events ?? selected.sysmon_events ?? 0
                       }
@@ -2290,7 +2393,7 @@ export default function ReportsPage() {
                       accent="red"
                     />
                     <MiniStat
-                      label="Procmon Rows"
+                      label="File & app activity"
                       value={
                         rd?.procmon?.sample_events?.toLocaleString() ?? "—"
                       }
@@ -2298,13 +2401,13 @@ export default function ReportsPage() {
                       accent="amber"
                     />
                     <MiniStat
-                      label="Files Collected"
+                    label="Files collected"
                       value={selected.files_collected?.length || 0}
                       icon={<IoFolderOpenOutline className="w-4 h-4" />}
                       accent="emerald"
                     />
                     <MiniStat
-                      label="Screenshots"
+                    label="Screenshots"
                       value={rd?.screenshots?.length ?? 0}
                       icon={<IoImageOutline className="w-4 h-4" />}
                       accent="sky"
@@ -2350,25 +2453,37 @@ export default function ReportsPage() {
                   )}
                 </div>
 
-                {/* Tab switcher */}
-                <div className="bg-white rounded-md shadow-sm border border-slate-200 overflow-hidden flex">
+                {/* Report sections */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex">
                   <button
-                    onClick={() => setActiveTab("report")}
+                    onClick={() => setActiveTab("overview")}
+                    className={`flex-1 px-3 md:px-6 py-3 text-sm font-semibold transition-colors flex items-center justify-center gap-2 border-b-2 ${
+                      activeTab === "overview"
+                        ? "text-violet-700 border-violet-600 bg-violet-50/60"
+                        : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <IoAnalyticsOutline className="w-4 h-4" />
+                    Overview
+                  </button>
+                  <div className="w-px bg-slate-200" />
+                  <button
+                    onClick={() => setActiveTab("evidence")}
                     className={`flex-1 px-6 py-3 text-sm font-semibold transition-colors flex items-center justify-center gap-2 border-b-2 ${
-                      activeTab === "report"
-                        ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                      activeTab === "evidence"
+                        ? "text-violet-700 border-violet-600 bg-violet-50/60"
                         : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50"
                     }`}
                   >
                     <IoDocumentTextOutline className="w-4 h-4" />
-                    Raw Report
+                    Technical evidence
                   </button>
                   <div className="w-px bg-slate-200" />
                   <button
                     onClick={() => setActiveTab("ai")}
                     className={`flex-1 px-6 py-3 text-sm font-semibold transition-colors flex items-center justify-center gap-2 border-b-2 ${
                       activeTab === "ai"
-                        ? "text-blue-700 border-blue-600 bg-blue-50/50"
+                        ? "text-violet-700 border-violet-600 bg-violet-50/60"
                         : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50"
                     }`}
                   >
@@ -2395,6 +2510,10 @@ export default function ReportsPage() {
                   </button>
                 </div>
 
+                {activeTab === "overview" && !detailLoading && (
+                  <ReportOverview report={selected} data={rd} aiReport={aiReport} />
+                )}
+
                 {/* AI Tab */}
                 {activeTab === "ai" && (
                   <AIAnalysisTab
@@ -2409,7 +2528,7 @@ export default function ReportsPage() {
                 )}
 
                 {/* Report sections (only when report tab active) */}
-                {activeTab === "report" && !detailLoading && rd && (
+                {activeTab === "evidence" && !detailLoading && rd && (
                   <div className="space-y-4">
                     {rd.metadata?.collectors && (
                       <Panel
@@ -2576,7 +2695,7 @@ export default function ReportsPage() {
                   </div>
                 )}
 
-                {activeTab === "report" && detailLoading && (
+                {(activeTab === "evidence" || activeTab === "overview") && detailLoading && (
                   <div className="bg-white rounded-md shadow-sm border border-slate-100 p-12 text-center">
                     <div className="animate-spin w-8 h-8 border-4 border-blue-200 border-t-blue-500 rounded-full mx-auto mb-3" />
                     <p className="text-sm text-slate-500">

@@ -208,10 +208,10 @@ check(
     f"list={has_screenshot_list}, serve={has_file_serve}, reports_list={has_reports_list}, data={has_report_data}",
 )
 
-# ── Check reports page has two tabs (Report + AI Summary) ───────────
+# ── Check reports page has overview, evidence, and AI sections ───────
 
 reports_src_full = read(pages_to_check["reports"])
-has_report_tab = 'activeTab === "report"' in reports_src_full or "activeTab" in reports_src_full
+has_report_tab = 'activeTab === "overview"' in reports_src_full and "Technical evidence" in reports_src_full
 has_ai_tab = "AI Analysis" in reports_src_full or "AI Summary" in reports_src_full or "Coming Soon" in reports_src_full
 has_sysmon_section = "SysmonSection" in reports_src_full
 has_procmon_section = "ProcmonSection" in reports_src_full
@@ -219,8 +219,8 @@ has_network_section = "NetworkSection" in reports_src_full
 has_gallery = "ScreenshotGallery" in reports_src_full
 has_hover = "startHoverAdvance" in reports_src_full or "hoverTimerRef" in reports_src_full
 check(
-    "Reports page two-tab layout",
-    "Reports page has Report tab and AI Analysis tab",
+    "Reports page overview and analysis sections",
+    "Reports page has plain-language Overview, Technical evidence, and AI Analysis sections",
     has_report_tab and has_ai_tab,
     f"report_tab={has_report_tab}, ai_tab={has_ai_tab}",
 )
