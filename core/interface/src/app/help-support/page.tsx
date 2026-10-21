@@ -1,9 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   IoDocumentTextOutline,
-  IoMailOutline,
   IoConstructOutline,
   IoChevronForwardOutline,
   IoRemoveOutline,
@@ -64,13 +64,13 @@ export default function HelpSupportPage() {
   }, []);
 
   return (
-    <div className="max-w-4xl">
+      <div className="help-page max-w-5xl">
       <h1 className="text-2xl font-bold text-slate-900 mb-1">Help & Support</h1>
-      <p className="text-sm text-slate-600 mb-6">
+      <p className="text-sm text-slate-600 mb-7">
         Documentation, FAQs, and project information for IsoLens.
       </p>
 
-      {/* Documentation and Contact Us Row */}
+      {/* Documentation and troubleshooting */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         {/* Documentation Section */}
         <div className="bg-white rounded shadow-sm border border-slate-100 p-5">
@@ -89,9 +89,9 @@ export default function HelpSupportPage() {
                 </h4>
                 <p className="text-xs text-slate-600 mb-3">
                   Learn the basics: upload a suspicious file on the{" "}
-                  <a href="/scan" className="text-blue-600">
+                  <Link href="/scan" className="text-blue-600">
                     Scan
-                  </a>{" "}
+                  </Link>{" "}
                   page, monitor progress, then review the report.
                 </p>
               </div>
@@ -108,42 +108,16 @@ export default function HelpSupportPage() {
                   How to Interpret Reports
                 </h4>
                 <p className="text-xs text-slate-600 mb-3">
-                  Reports show Sysmon events, collected artifacts, and
-                  screenshots captured during execution. AI threat intelligence
-                  summaries are coming soon.
+                  Reports include captured events, artifacts, screenshots, and the available AI threat analysis.
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Contact Us Section */}
+        {/* Troubleshooting */}
         <div className="bg-white rounded shadow-sm border border-slate-100 p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <h3 className="text-base font-semibold text-slate-800">
-              Contact Us
-            </h3>
-            <span className="text-[10px] font-medium bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-              Coming Soon
-            </span>
-          </div>
-
-          <div className="bg-slate-50 rounded-lg p-4 mb-3 opacity-60">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <IoMailOutline className="w-5 h-5 text-blue-600" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-semibold text-slate-800 mb-1">
-                  Contact Support
-                </h4>
-                <p className="text-xs text-slate-600 mb-3">
-                  In-app messaging will be available in a future update.
-                </p>
-              </div>
-            </div>
-          </div>
-
+          <h3 className="text-base font-semibold text-slate-800 mb-4">Troubleshooting</h3>
           <div className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-start gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
@@ -157,17 +131,17 @@ export default function HelpSupportPage() {
                   <strong>Gateway not connecting?</strong> Ensure the gateway is
                   running on port 6969.
                   <br />
-                  <strong>Agent unreachable?</strong> Start the VM from the{" "}
-                  <a href="/sandbox" className="text-blue-600">
-                    Sandbox
-                  </a>{" "}
-                  page and verify the agent is running.
+                  <strong>Agent unreachable?</strong> Check the VM and agent status on the{" "}
+                  <Link href="/scan" className="text-blue-600">
+                    Scan
+                  </Link>{" "}
+                  page.
                   <br />
-                  <strong>Scan stuck?</strong> Check the{" "}
-                  <a href="/sandbox" className="text-blue-600">
-                    Sandbox
-                  </a>{" "}
-                  page for VM/agent status.
+                  <strong>Scan stuck?</strong> Check the current scan state on the{" "}
+                  <Link href="/scan" className="text-blue-600">
+                    Scan
+                  </Link>{" "}
+                  page before retrying.
                 </p>
               </div>
             </div>
@@ -192,7 +166,7 @@ export default function HelpSupportPage() {
           />
           <FAQItem
             question="What data is collected during analysis?"
-            answer="IsoLens collects Sysmon logs (process creation, network, file, registry events), network capture (tshark), process handles, TCP connections, screenshots, and optionally Procmon logs."
+            answer="IsoLens gathers Sysmon and Procmon events when available, process handles, TCP connection snapshots, screenshots, and execution metadata."
           />
           <FAQItem
             question="How are screenshots captured?"
@@ -222,7 +196,7 @@ export default function HelpSupportPage() {
           <div className="flex items-center justify-between">
             <span className="text-sm text-slate-600">Source Code:</span>
             <a
-              href="https://github.com"
+              href="https://github.com/psychoSherlock/Isolens"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"

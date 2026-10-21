@@ -2062,7 +2062,7 @@ export default function ReportsPage() {
   const rd = reportData;
 
   return (
-    <div className="space-y-6">
+    <div className="reports-page space-y-7 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

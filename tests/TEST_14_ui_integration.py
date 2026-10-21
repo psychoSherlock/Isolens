@@ -146,28 +146,29 @@ else:
         "sandbox_page=removed",
     )
 
-# ── Check scan-history page has mock data removed ──────────────────
+# ── Check scan-history page uses available report data ────────────
 
 history_src = read(pages_to_check["scan-history"])
 has_old_mock = "mockScans" in history_src
-has_coming_soon = "Coming Soon" in history_src
+uses_local_storage = "local report storage" in history_src
+has_placeholder_controls = "Any Risk Level" in history_src or "Export CSV" in history_src
 check(
-    "Scan history no mock + coming soon",
-    "Scan history removes mock data and has coming soon label",
-    not has_old_mock and has_coming_soon,
-    f"old_mock={has_old_mock}, coming_soon={has_coming_soon}",
+    "Scan history shows available data only",
+    "Scan history uses local report data without unimplemented controls",
+    not has_old_mock and uses_local_storage and not has_placeholder_controls,
+    f"old_mock={has_old_mock}, local_storage={uses_local_storage}, placeholder_controls={has_placeholder_controls}",
 )
 
-# ── Check settings has coming soon labels ───────────────────────────
+# ── Check settings contains live system configuration ──────────────
 
 settings_src = read(pages_to_check["settings"])
-settings_coming_soon = "Coming Soon" in settings_src
 settings_uses_api = "getVersion" in settings_src or "ping" in settings_src
+settings_has_placeholders = "Coming Soon" in settings_src or "Save Settings" in settings_src
 check(
-    "Settings coming soon + live data",
-    "Settings page has Coming Soon labels and uses live API data",
-    settings_coming_soon and settings_uses_api,
-    f"coming_soon={settings_coming_soon}, uses_api={settings_uses_api}",
+    "Settings shows live system configuration",
+    "Settings page uses live API data without nonfunctional save controls",
+    not settings_has_placeholders and settings_uses_api,
+    f"placeholders={settings_has_placeholders}, uses_api={settings_uses_api}",
 )
 
 # ── Check Header has gateway status ─────────────────────────────────

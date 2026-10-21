@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   IoSearchOutline,
@@ -28,17 +29,6 @@ function statusBadge(status: string) {
     </span>
   );
 }
-
-const iconColors = [
-  "bg-blue-500",
-  "bg-blue-500",
-  "bg-green-500",
-  "bg-orange-500",
-  "bg-pink-500",
-  "bg-teal-500",
-  "bg-indigo-500",
-  "bg-red-500",
-];
 
 /* ── Page Component ────────────────────────────────────── */
 
@@ -71,19 +61,16 @@ export default function ScanHistoryPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-slate-900">Scan History</h1>
-        <span className="text-xs font-medium bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full">
-          Database storage — Coming Soon
-        </span>
+    <div className="history-page space-y-7 max-w-6xl mx-auto">
+      <div className="page-intro flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold text-slate-900">Scan history</h1>
+          <p className="text-sm text-slate-600 mt-2">
+            Past analyses saved in local report storage.
+          </p>
+        </div>
+        {!loading && <span className="page-count">{filtered.length} {filtered.length === 1 ? "sample" : "samples"}</span>}
       </div>
-
-      <p className="text-sm text-slate-500">
-        Showing completed analysis reports from the local report storage.
-        Persistent database-backed history with search, filtering, and export
-        will be available in a future update.
-      </p>
 
       {/* Search bar */}
       <div className="flex flex-wrap items-center gap-3">
@@ -97,26 +84,6 @@ export default function ScanHistoryPage() {
             className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
           />
         </div>
-      </div>
-
-      {/* Coming soon features disabled */}
-      <div className="flex flex-wrap items-center gap-3 opacity-50 pointer-events-none">
-        <button className="inline-flex items-center gap-1.5 border border-slate-300 bg-white text-sm text-slate-600 px-3 py-2 rounded-lg">
-          Any Status ▾
-        </button>
-        <button className="inline-flex items-center gap-1.5 border border-slate-300 bg-white text-sm text-slate-600 px-3 py-2 rounded-lg">
-          Any Risk Level ▾
-          <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded ml-1">
-            Soon
-          </span>
-        </button>
-        <button className="inline-flex items-center gap-1.5 border border-slate-300 bg-white text-sm text-slate-600 px-3 py-2 rounded-lg">
-          <IoDocumentOutline className="w-3.5 h-3.5" />
-          Export CSV
-          <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded ml-1">
-            Soon
-          </span>
-        </button>
       </div>
 
       {error && (
@@ -137,9 +104,9 @@ export default function ScanHistoryPage() {
           <p className="text-slate-500">No scan history found.</p>
           <p className="text-sm text-slate-400 mt-1">
             Submit a sample from the{" "}
-            <a href="/scan" className="text-blue-600 hover:text-blue-700">
+            <Link href="/scan" className="text-blue-600 hover:text-blue-700">
               Scan
-            </a>{" "}
+            </Link>{" "}
             page.
           </p>
         </div>
@@ -157,7 +124,7 @@ export default function ScanHistoryPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((report, idx) => (
+              {filtered.map((report) => (
                 <tr
                   key={report.analysis_id}
                   className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
@@ -165,11 +132,9 @@ export default function ScanHistoryPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-8 h-8 rounded-lg ${
-                          iconColors[idx % iconColors.length]
-                        } flex items-center justify-center`}
+                        className="w-8 h-8 rounded-lg bg-[#eee9f7] flex items-center justify-center"
                       >
-                        <IoDocumentOutline className="w-4 h-4 text-white" />
+                        <IoDocumentOutline className="w-4 h-4 text-[#6042b2]" />
                       </div>
                       <div>
                         <p className="font-medium text-slate-800">
@@ -194,12 +159,12 @@ export default function ScanHistoryPage() {
                     {report.files_collected?.length || 0}
                   </td>
                   <td className="px-3 py-3">
-                    <a
+                    <Link
                       href="/reports"
                       className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                     >
                       View →
-                    </a>
+                    </Link>
                   </td>
                 </tr>
               ))}

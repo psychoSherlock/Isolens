@@ -1,9 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IoCloudUploadOutline,
-  IoInformationCircleOutline,
   IoCheckmarkOutline,
   IoRefreshOutline,
   IoFlashOutline,
@@ -326,44 +326,45 @@ export default function ScanPage() {
     setPreviewSrc("");
   };
 
-  const stateIcon = () => {
-    switch (scanState) {
-      case "running":
-      case "uploading":
-        return (
-          <IoHourglassOutline className="w-5 h-5 text-blue-500 animate-pulse" />
-        );
-      case "complete":
-        return <IoCheckmarkCircle className="w-5 h-5 text-green-500" />;
-      case "failed":
-        return <IoCloseCircle className="w-5 h-5 text-red-500" />;
-      default:
-        return <IoFlashOutline className="w-5 h-5 text-blue-500" />;
-    }
-  };
+  const flowStep = scanState === "complete"
+    ? 3
+    : scanState === "failed"
+      ? (progress >= 85 ? 2 : 1)
+      : scanState === "running"
+        ? (isFinalizing ? 2 : 1)
+        : 0;
+  const flowStages = ["Choose sample", "Run in sandbox", "Collect report"];
+  const vmIsRunning = Boolean(vmInfo?.state?.toLowerCase().includes("running"));
+  const vmStateLabel = vmIsRunning
+    ? "VM running"
+    : vmInfo?.state?.toLowerCase() === "poweroff"
+      ? "VM powered off"
+      : vmInfo?.state || "Status unavailable";
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="scan-page space-y-7 max-w-[1120px] mx-auto">
       <div className="flex items-center justify-between pb-1">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
-            Start a scan
+          <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">
+            Scan a sample
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Run a file in the isolated Windows sandbox and review its behavior.
+          <p className="text-[15px] text-slate-600 mt-2 max-w-2xl leading-6">
+            Observe what a suspicious file does inside your isolated Windows environment.
           </p>
         </div>
       </div>
 
       {/* ── Upload & Scan ──────────────────────────── */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h2 className="text-base font-semibold text-slate-800">
-            Choose a file
-          </h2>
+      <div className="scan-workspace bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+        <div className="scan-workspace-heading px-7 py-5 border-b border-slate-100 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Sample file</h2>
+            <p className="text-sm text-slate-500 mt-1">Choose one file to inspect in the sandbox.</p>
+          </div>
+          <span className="scan-limit-note">EXE · DLL · BAT · PS1 · ZIP <i>Up to 256 MB</i></span>
         </div>
 
-        <div className="p-6 flex flex-col lg:flex-row gap-8">
+        <div className="scan-workspace-body p-7 flex flex-col lg:flex-row gap-9">
           {/* Drag & Drop zone */}
           <div className="flex-1">
             <div
@@ -403,11 +404,11 @@ export default function ScanPage() {
                 </div>
               ) : (
                 <div>
-                  <p className="text-sm font-medium text-slate-700">
-                    Click to upload or drag and drop
+                  <p className="text-base font-semibold text-slate-800">
+                    Drop a file here, or <span>browse your computer</span>
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Executable formats & macros up to 256MB
+                  <p className="text-sm text-slate-500 mt-2">
+                    Your sample stays inside the analysis environment.
                   </p>
                 </div>
               )}
@@ -453,6 +454,25 @@ export default function ScanPage() {
               </span>
             </div>
 
+            <ol className="scan-flow" aria-label="Analysis stages">
+              {flowStages.map((stage, index) => {
+                const done = index < flowStep;
+                const current = index === flowStep;
+                const state = done ? "done" : current ? "current" : "waiting";
+                return (
+                  <li
+                    key={stage}
+                    data-state={state}
+                    data-animate={scanState === "running" || scanState === "uploading"}
+                    aria-current={current ? "step" : undefined}
+                  >
+                    <span className="scan-flow-node" aria-hidden="true">{done ? "✓" : index + 1}</span>
+                    <span className="scan-flow-label">{stage}</span>
+                  </li>
+                );
+              })}
+            </ol>
+
             {/* Timer */}
             {scanState === "running" && timeRemaining !== null && (
               <div
@@ -489,10 +509,10 @@ export default function ScanPage() {
           </div>
 
           {/* Right side options */}
-          <div className="flex flex-col lg:w-72 space-y-5">
+          <div className="scan-options flex flex-col lg:w-80 space-y-5">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
-                Timeout Profile
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Analysis time
               </label>
               <select
                 value={timeout}
@@ -580,12 +600,9 @@ export default function ScanPage() {
               </button>
 
               <div className="flex justify-between items-center mt-3">
-                <span className="text-[11px] text-slate-400">
-                  VM State: Ready
-                </span>
                 <button
+                  className="ml-auto text-[11px] font-medium text-slate-500 hover:text-slate-800 flex items-center gap-1"
                   onClick={handleReset}
-                  className="text-[11px] font-medium text-slate-500 hover:text-slate-800 flex items-center gap-1"
                 >
                   <IoRefreshOutline className="w-3.5 h-3.5" />
                   Reset Form
@@ -650,12 +667,12 @@ export default function ScanPage() {
                     </div>
                   </div>
                 </div>
-                <a
+                <Link
                   href="/reports"
                   className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-5 py-2.5 rounded shadow-sm transition-colors text-center"
                 >
                   Open Sandbox Report
-                </a>
+                </Link>
               </div>
             )}
           </div>
@@ -736,8 +753,8 @@ export default function ScanPage() {
           data-idle={scanState !== "running"}
         >
           <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">
-              Environment Status
+            <h2 className="text-base font-semibold text-slate-800">
+              Sandbox environment
             </h2>
           </div>
           <div className="environment-details p-6 flex-1 flex flex-col">
@@ -752,39 +769,37 @@ export default function ScanPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="absolute inset-0 rounded-full border-4 border-green-500" />
+                  <div className={`absolute inset-0 rounded-full border-4 ${vmIsRunning ? "border-green-500" : "border-slate-200"}`} />
                 )}
-                {scanState !== "running" && (
+                {scanState !== "running" && vmIsRunning && (
                   <div className="w-8 h-8 bg-green-50 rounded-full flex items-center justify-center">
                     <IoCheckmarkCircle className="w-5 h-5 text-green-500" />
                   </div>
                 )}
+                {scanState !== "running" && !vmIsRunning && (
+                  <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                    <IoDesktopOutline className="w-4 h-4 text-slate-500" />
+                  </div>
+                )}
               </div>
 
-              <h3 className="text-base font-bold text-slate-900 mb-1">
-                {vmInfo?.name || "Windows Sandbox"}
-              </h3>
-              <p className="text-xs text-slate-500 mb-3">
-                OS:{" "}
-                <span className="font-medium text-slate-700">
-                  {vmInfo?.os || "Unknown"}
-                </span>
-              </p>
-              <p className="text-sm text-slate-500">
+              <div className="environment-meta">
+                <h3 className="text-base font-bold text-slate-900 mb-1">
+                  {vmInfo?.name || "Windows Sandbox"}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  OS: {vmInfo?.os || "Unavailable"}
+                </p>
+              </div>
+              <p className="environment-state text-xs text-slate-500">
                 {scanState === "running" ? (
                   <span className="text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded-full">
                     Analyzing...
                   </span>
-                ) : scanState === "idle" ? (
-                  <span className="text-green-600 font-medium">
-                    Up and running
-                  </span>
-                ) : scanState === "failed" ? (
-                  <span className="text-red-500 font-medium">
-                    Execution Failed
-                  </span>
                 ) : (
-                  <span className="text-green-600 font-medium">Done</span>
+                  <span className={`font-medium ${vmIsRunning ? "text-green-700" : "text-slate-500"}`}>
+                    {vmStateLabel}
+                  </span>
                 )}
               </p>
             </div>

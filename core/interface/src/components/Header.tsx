@@ -1,16 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
 import { ping } from "@/lib/api";
 
 export default function Header() {
-  const pathname = usePathname();
   const [gatewayOk, setGatewayOk] = useState<boolean | null>(null);
-  const pageName = pathname === "/" || pathname === "/scan" ? "New scan" :
-    pathname === "/reports" ? "Reports" :
-    pathname === "/scan-history" ? "Scan history" :
-    pathname === "/settings" ? "Settings" : "Help & support";
 
   useEffect(() => {
     const check = async () => {
@@ -27,8 +21,7 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="app-header flex items-center justify-between px-8 z-10">
-      <h1 className="text-lg font-semibold text-slate-800">{pageName}</h1>
+    <header className="app-header flex items-center justify-end px-8 z-10">
       {/* Gateway status indicator */}
       <div className="gateway-status flex items-center gap-2">
         <span

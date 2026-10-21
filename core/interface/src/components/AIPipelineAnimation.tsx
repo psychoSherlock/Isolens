@@ -26,11 +26,11 @@ interface AIPipelineAnimationProps {
 /* ─── Agent config ──────────────────────────────────────────────── */
 
 const AGENTS = [
-  { id: "sysmon",  label: "Sysmon Analyzer",   sub: "Process & event logs",    Icon: IoServerOutline,      color: "#3b82f6" },
-  { id: "procmon", label: "Procmon Analyzer",   sub: "File & registry ops",     Icon: IoHardwareChipOutline, color: "#6366f1" },
-  { id: "network", label: "Network Analyzer",   sub: "Traffic & C2 detection",  Icon: IoGlobeOutline,        color: "#0ea5e9" },
-  { id: "handle",  label: "Handle Analyzer",    sub: "Mutex & file handles",    Icon: IoDocumentTextOutline, color: "#8b5cf6" },
-  { id: "tcpvcon", label: "TCPVcon Analyzer",   sub: "Active connections",      Icon: IoAnalyticsOutline,    color: "#a855f7" },
+  { id: "sysmon",  label: "Sysmon Analyzer",   sub: "Process & event logs",    Icon: IoServerOutline,      color: "#7657c9" },
+  { id: "procmon", label: "Procmon Analyzer",   sub: "File & registry ops",     Icon: IoHardwareChipOutline, color: "#9a82d2" },
+  { id: "network", label: "Network Analyzer",   sub: "Traffic & C2 detection",  Icon: IoGlobeOutline,        color: "#4e8993" },
+  { id: "handle",  label: "Handle Analyzer",    sub: "Mutex & file handles",    Icon: IoDocumentTextOutline, color: "#76699f" },
+  { id: "tcpvcon", label: "TCPVcon Analyzer",   sub: "Active connections",      Icon: IoAnalyticsOutline,    color: "#688c78" },
 ];
 
 /* ─── SVG layout ────────────────────────────────────────────────── */
@@ -613,7 +613,7 @@ export default function AIPipelineAnimation({
               width: `${Math.max(pct, 3)}%`,
               background: summarizerDone
                 ? "linear-gradient(90deg,#22c55e,#16a34a)"
-                : "linear-gradient(90deg,#3b82f6,#a855f7)",
+                : "linear-gradient(90deg,#7657c9,#9a82d2)",
             }}
           >
             <div className="absolute inset-0 bg-white/20 animate-pulse" />
