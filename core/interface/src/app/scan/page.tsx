@@ -14,11 +14,11 @@ import {
   IoExpandOutline,
   IoContractOutline,
   IoLockClosed,
+  IoAlertCircleOutline,
 } from "react-icons/io5";
 import {
   submitAnalysis,
   getAnalysisStatus,
-  vmScreenURL,
   getVMInfo,
   startVM,
   poweroffVM,
@@ -27,6 +27,7 @@ import {
   type AnalysisResult,
   type VMInfo,
 } from "@/lib/api";
+import { useLiveVMScreenshot } from "@/components/useLiveVMScreenshot";
 
 type ScanState = "idle" | "uploading" | "running" | "complete" | "failed";
 
@@ -45,8 +46,15 @@ export default function ScanPage() {
   // New states for Sandbox Preview and Timer
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
-  const [previewSrc, setPreviewSrc] = useState<string>("");
   const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [previewImageError, setPreviewImageError] = useState(false);
+  const { src: previewSrc, status: previewStatus, updatedAt: previewUpdatedAt } = useLiveVMScreenshot(
+    scanState === "running",
+    "WindowsSandbox",
+  );
+  const lastFrameTime = previewUpdatedAt
+    ? new Intl.DateTimeFormat(undefined, { timeStyle: "medium" }).format(previewUpdatedAt)
+    : "";
 
   // VM Info and controls
   const [vmInfo, setVmInfo] = useState<VMInfo | null>(null);
@@ -55,14 +63,12 @@ export default function ScanPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const previewTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Clean up polling on unmount
   useEffect(() => {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
-      if (previewTimerRef.current) clearInterval(previewTimerRef.current);
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
     };
   }, []);
@@ -180,7 +186,6 @@ export default function ScanPage() {
 
   const cleanupTimers = () => {
     if (pollingRef.current) clearInterval(pollingRef.current);
-    if (previewTimerRef.current) clearInterval(previewTimerRef.current);
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
     setTimeRemaining(null);
     setIsFinalizing(false);
@@ -189,14 +194,6 @@ export default function ScanPage() {
   // Preview polling logic
   useEffect(() => {
     if (scanState === "running") {
-      // Setup preview polling
-      if (!previewTimerRef.current) {
-        setPreviewSrc(vmScreenURL("WindowsSandbox"));
-        previewTimerRef.current = setInterval(() => {
-          setPreviewSrc(vmScreenURL("WindowsSandbox"));
-        }, 2000);
-      }
-
       // Setup countdown timer
       if (!countdownTimerRef.current && timeRemaining !== null) {
         countdownTimerRef.current = setInterval(() => {
@@ -213,16 +210,9 @@ export default function ScanPage() {
         }, 1000);
       }
     } else {
-      if (previewTimerRef.current) {
-        clearInterval(previewTimerRef.current);
-        previewTimerRef.current = null;
-      }
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
-      }
-      if (scanState !== "failed" && scanState !== "complete") {
-        setPreviewSrc("");
       }
     }
   }, [scanState, timeRemaining]);
@@ -323,7 +313,6 @@ export default function ScanPage() {
     setStatusMsg("No ongoing scan");
     setError(null);
     setResult(null);
-    setPreviewSrc("");
   };
 
   const flowStep = scanState === "complete"
@@ -693,6 +682,7 @@ export default function ScanPage() {
                 <button
                   onClick={() => setPreviewExpanded(true)}
                   className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
+                  aria-label="Open live screenshot fullscreen"
                   title="Fullscreen"
                 >
                   <IoExpandOutline className="w-4 h-4" />
@@ -725,24 +715,38 @@ export default function ScanPage() {
                 <img
                   src={previewSrc}
                   alt="Live VM Screenshot"
-                  className="w-full h-full object-contain"
-                  onError={() => {}}
+                  width={1280}
+                  height={720}
+                  className={`w-full h-full object-contain ${previewImageError ? "opacity-0" : ""}`}
+                  onLoad={() => setPreviewImageError(false)}
+                  onError={() => setPreviewImageError(true)}
                 />
-                <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 text-green-400 text-xs font-mono px-2 py-1 rounded shadow-sm border border-green-500/30">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                  LIVE
+                {previewImageError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center text-amber-100" role="status">
+                    <IoAlertCircleOutline className="h-7 w-7" aria-hidden="true" />
+                    <span className="text-sm">This frame could not be displayed. Reconnecting…</span>
+                  </div>
+                )}
+                <div className={`absolute top-3 right-3 flex items-center gap-1.5 bg-black/70 text-xs font-medium px-2.5 py-1.5 rounded-full shadow-sm border ${previewStatus === "live" ? "text-emerald-300 border-emerald-500/30" : "text-amber-200 border-amber-400/30"}`} role="status">
+                  <span className={`w-2 h-2 rounded-full ${previewStatus === "live" ? "bg-emerald-400 animate-pulse" : "bg-amber-300"}`} />
+                  {previewStatus === "live" ? "Live" : `Last good frame${lastFrameTime ? ` · ${lastFrameTime}` : ""} · reconnecting`}
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center text-slate-500">
-                <div className="animate-spin w-8 h-8 border-2 border-slate-200 border-t-blue-500 rounded-full mb-3" />
-                <p className="text-sm">Connecting to VM display...</p>
+              <div className="flex flex-col items-center justify-center text-slate-500 text-center px-5">
+                {previewStatus === "stale" ? (
+                  <IoAlertCircleOutline className="h-8 w-8 text-amber-500 mb-3" aria-hidden="true" />
+                ) : (
+                  <div className="animate-spin w-8 h-8 border-2 border-slate-200 border-t-blue-500 rounded-full mb-3" />
+                )}
+                <p className="text-sm">{previewStatus === "stale" ? "VM screenshot is unavailable" : "Connecting to VM display..."}</p>
+                {previewStatus === "stale" && <p className="text-xs mt-1">Reconnecting automatically. Check that the sandbox is running.</p>}
               </div>
             )}
           </div>
           {scanState === "running" && (
             <div className="px-4 py-2 bg-white border-t border-slate-100 text-[11px] text-slate-400 text-center">
-              Frames refreshing automatically every 2s
+              Frames refresh automatically. If a capture fails, the last good frame stays visible while reconnecting.
             </div>
           )}
         </div>}
@@ -875,13 +879,14 @@ export default function ScanPage() {
       {previewExpanded && previewSrc && (
         <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 lg:p-12">
           <div className="absolute top-4 lg:top-8 right-4 lg:right-8 z-10 flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-black/60 border border-green-500/30 text-green-400 text-sm font-mono px-3 py-1.5 rounded-md shadow-lg">
-              <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-              LIVE PREVIEW
+            <div className={`flex items-center gap-2 bg-black/60 border text-sm px-3 py-1.5 rounded-full shadow-lg ${previewStatus === "live" ? "border-green-500/30 text-green-300" : "border-amber-400/30 text-amber-200"}`} role="status">
+              <span className={`w-2.5 h-2.5 rounded-full ${previewStatus === "live" ? "bg-green-400 animate-pulse" : "bg-amber-300"}`} />
+              {previewStatus === "live" ? "Live preview" : `Last good frame${lastFrameTime ? ` · ${lastFrameTime}` : ""} · reconnecting`}
             </div>
             <button
               onClick={() => setPreviewExpanded(false)}
               className="p-2.5 bg-white/10 hover:bg-white/20 border border-white/10 text-white rounded-md transition-all hover:scale-105 active:scale-95"
+              aria-label="Exit fullscreen"
               title="Exit Fullscreen"
             >
               <IoContractOutline className="w-5 h-5" />
@@ -889,12 +894,22 @@ export default function ScanPage() {
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <div className="w-full max-w-6xl w-full h-full flex items-center justify-center relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={previewSrc}
               alt="Live VM Screenshot — Fullscreen"
-              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl ring-1 ring-white/10"
-              onError={() => {}}
+              width={1280}
+              height={720}
+              className={`max-w-full max-h-full object-contain rounded-lg shadow-2xl ring-1 ring-white/10 ${previewImageError ? "opacity-0" : ""}`}
+              onLoad={() => setPreviewImageError(false)}
+              onError={() => setPreviewImageError(true)}
             />
+            {previewImageError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-amber-100" role="status">
+                <IoAlertCircleOutline className="h-8 w-8 mx-auto mb-2" aria-hidden="true" />
+                <p className="text-sm">This frame could not be displayed. Reconnecting…</p>
+              </div>
+            )}
           </div>
         </div>
       )}

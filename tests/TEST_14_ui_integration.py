@@ -217,7 +217,8 @@ has_sysmon_section = "SysmonSection" in reports_src_full
 has_procmon_section = "ProcmonSection" in reports_src_full
 has_network_section = "NetworkSection" in reports_src_full
 has_gallery = "ScreenshotGallery" in reports_src_full
-has_hover = "startHoverAdvance" in reports_src_full or "hoverTimerRef" in reports_src_full
+has_screenshot_fallback = "Screenshot could not be loaded" in reports_src_full and "Try again" in reports_src_full
+has_keyboard_viewer = 'aria-label="Next screenshot"' in reports_src_full and 'aria-label="Screenshot viewer"' in reports_src_full
 check(
     "Reports page overview and analysis sections",
     "Reports page has plain-language Overview, Technical evidence, and AI Analysis sections",
@@ -232,9 +233,9 @@ check(
 )
 check(
     "Reports page screenshot gallery",
-    "Reports page has ScreenshotGallery with hover-to-advance",
-    has_gallery and has_hover,
-    f"gallery={has_gallery}, hover={has_hover}",
+    "Reports page gallery has visible failure recovery and accessible viewer controls",
+    has_gallery and has_screenshot_fallback and has_keyboard_viewer,
+    f"gallery={has_gallery}, fallback={has_screenshot_fallback}, keyboard={has_keyboard_viewer}",
 )
 
 # ── Summary ──────────────────────────────────────────────────────────

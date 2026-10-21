@@ -10,6 +10,7 @@ history = (ROOT / "core/interface/src/app/scan-history/page.tsx").read_text()
 help_page = (ROOT / "core/interface/src/app/help-support/page.tsx").read_text()
 settings = (ROOT / "core/interface/src/app/settings/page.tsx").read_text()
 styles = (ROOT / "core/interface/src/app/globals.css").read_text()
+live_screenshot = (ROOT / "core/interface/src/components/useLiveVMScreenshot.ts").read_text()
 
 checks = {
     "existing_sections_only": all(
@@ -22,6 +23,10 @@ checks = {
     "reports_have_readable_activity_graph": "Activity collected" in reports and "System activity" in reports and "Network lookups" in reports,
     "risk_is_distinguished_from_activity_counts": "A higher count alone does not mean a file is malicious." in reports and "AI assessment not run" in reports,
     "technical_evidence_remains_available": 'setActiveTab("evidence")' in reports and "Technical evidence" in reports,
+    "live_screenshots_poll_without_overlap": "await fetch(vmScreenURL(vm)" in live_screenshot and "setTimeout(fetchFrame, 2000)" in live_screenshot and "setInterval" not in live_screenshot,
+    "live_screenshot_keeps_last_good_frame": "if (!cancelled) setStatus(\"stale\")" in live_screenshot and "setSrc(nextUrl)" in live_screenshot,
+    "live_preview_has_render_failure_feedback": "This frame could not be displayed. Reconnecting" in scan and 'previewStatus === "live"' in scan,
+    "report_screenshot_failures_are_visible": "Screenshot could not be loaded" in reports and "Try again" in reports,
     "idle_preview_hidden": '{scanState === "running" && <div className="lg:col-span-2' in scan,
     "compact_sandbox_controls": 'className="environment-details p-6' in scan and 'data-idle={scanState !== "running"}' in scan,
     "violet_scan_action": "scan-primary" in scan and ".app-content button.scan-primary" in styles,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   IoDocumentTextOutline,
   IoImageOutline,
@@ -277,6 +277,71 @@ function DataGrid({
    SCREENSHOT GALLERY
    ═══════════════════════════════════════════════════════════════════════════ */
 
+function ScreenshotImage({
+  analysisId,
+  filename,
+  alt,
+  fit,
+  retryable = false,
+}: {
+  analysisId: string;
+  filename: string;
+  alt: string;
+  fit: "cover" | "contain";
+  retryable?: boolean;
+}) {
+  const [state, setState] = useState<"loading" | "loaded" | "error">("loading");
+  const [attempt, setAttempt] = useState(0);
+  const baseUrl = screenshotURL(analysisId, filename);
+  const src = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}retry=${attempt}`;
+
+  useEffect(() => {
+    setState("loading");
+  }, [analysisId, filename, attempt]);
+
+  return (
+    <div className="relative h-full w-full min-h-0 overflow-hidden bg-slate-100">
+      {state === "loading" && (
+        <div className="absolute inset-0 flex items-center justify-center text-slate-400" aria-live="polite">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-violet-600" />
+          <span className="sr-only">Loading screenshot</span>
+        </div>
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        key={src}
+        src={src}
+        alt={alt}
+        width={1280}
+        height={720}
+        decoding="async"
+        loading="lazy"
+        className={`h-full w-full ${fit === "cover" ? "object-cover" : "object-contain"} transition-opacity ${state === "loaded" ? "opacity-100" : "opacity-0"}`}
+        onLoad={() => setState("loaded")}
+        onError={() => setState("error")}
+      />
+      {state === "error" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-50 p-3 text-center text-slate-600">
+          <IoImageOutline className="h-6 w-6 text-slate-400" aria-hidden="true" />
+          <span className="text-xs">Screenshot could not be loaded</span>
+          {retryable && (
+            <button
+              type="button"
+              onClick={() => {
+                setState("loading");
+                setAttempt((value) => value + 1);
+              }}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ScreenshotGallery({
   analysisId,
   screenshots,
@@ -286,43 +351,27 @@ function ScreenshotGallery({
 }) {
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const hoverTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (lightboxIdx === null) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") setLightboxIdx(null);
-      if (e.key === "ArrowLeft" && lightboxIdx > 0)
-        setLightboxIdx(lightboxIdx - 1);
-      if (e.key === "ArrowRight" && lightboxIdx < screenshots.length - 1)
-        setLightboxIdx(lightboxIdx + 1);
+      if (e.key === "ArrowLeft")
+        setLightboxIdx((lightboxIdx - 1 + screenshots.length) % screenshots.length);
+      if (e.key === "ArrowRight")
+        setLightboxIdx((lightboxIdx + 1) % screenshots.length);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [lightboxIdx, screenshots.length]);
 
-  const startHoverAdvance = useCallback(() => {
-    if (hoverTimerRef.current) return;
-    hoverTimerRef.current = setInterval(() => {
-      setLightboxIdx((prev) => {
-        if (prev === null) return null;
-        return prev < screenshots.length - 1 ? prev + 1 : 0;
-      });
-    }, 700);
-  }, [screenshots.length]);
-
-  const stopHoverAdvance = useCallback(() => {
-    if (hoverTimerRef.current) {
-      clearInterval(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-  }, []);
-
   useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current) clearInterval(hoverTimerRef.current);
-    };
-  }, []);
+    if (lightboxIdx !== null) closeButtonRef.current?.focus();
+    else openerRef.current?.focus();
+  }, [lightboxIdx]);
 
   if (screenshots.length === 0) return null;
 
@@ -333,7 +382,8 @@ function ScreenshotGallery({
           onClick={() =>
             scrollRef.current?.scrollBy({ left: -320, behavior: "smooth" })
           }
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/95 border border-slate-200 shadow-lg rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="Scroll screenshots left"
+          className="absolute left-1 top-1/2 -translate-y-1/2 z-10 w-9 h-9 bg-white/95 border border-slate-200 shadow-lg rounded-full flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity"
         >
           <IoChevronBack className="w-4 h-4 text-slate-600" />
         </button>
@@ -341,7 +391,8 @@ function ScreenshotGallery({
           onClick={() =>
             scrollRef.current?.scrollBy({ left: 320, behavior: "smooth" })
           }
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white/95 border border-slate-200 shadow-lg rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="Scroll screenshots right"
+          className="absolute right-1 top-1/2 -translate-y-1/2 z-10 w-9 h-9 bg-white/95 border border-slate-200 shadow-lg rounded-full flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity"
         >
           <IoChevronForward className="w-4 h-4 text-slate-600" />
         </button>
@@ -354,19 +405,14 @@ function ScreenshotGallery({
           {screenshots.map((name, idx) => (
             <button
               key={name}
-              onClick={() => setLightboxIdx(idx)}
+              aria-label={`Open screenshot ${idx + 1}`}
+              onClick={(event) => {
+                openerRef.current = event.currentTarget;
+                setLightboxIdx(idx);
+              }}
               className="group/t relative flex-shrink-0 w-44 aspect-video rounded overflow-hidden border-2 border-slate-200 hover:border-blue-400 transition-all hover:shadow-lg hover:scale-[1.02]"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={screenshotURL(analysisId, name)}
-                alt={`Screenshot ${idx + 1}`}
-                className="w-full h-full object-cover"
-                loading="lazy"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
+              <ScreenshotImage analysisId={analysisId} filename={name} alt={`Screenshot ${idx + 1}`} fit="cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover/t:opacity-100 transition-opacity" />
               <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-black/60 backdrop-blur rounded-full flex items-center justify-center text-white text-[9px] font-bold">
                 {idx + 1}
@@ -380,13 +426,30 @@ function ScreenshotGallery({
       {lightboxIdx !== null && (
         <div
           className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Screenshot viewer"
+          ref={dialogRef}
+          onKeyDown={(event) => {
+            if (event.key !== "Tab") return;
+            const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+            if (!buttons?.length) return;
+            const first = buttons[0];
+            const last = buttons[buttons.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }}
           onClick={() => {
             setLightboxIdx(null);
-            stopHoverAdvance();
           }}
         >
           <div className="absolute top-0 inset-x-0 p-4 flex items-center justify-between z-10">
-            <div className="text-white/70 text-sm font-mono">
+            <div className="min-w-0 truncate pr-3 text-white/70 text-sm font-mono" title={screenshots[lightboxIdx]}>
               {screenshots[lightboxIdx]}
             </div>
             <div className="flex items-center gap-3">
@@ -394,10 +457,11 @@ function ScreenshotGallery({
                 {lightboxIdx + 1} / {screenshots.length}
               </span>
               <button
+                aria-label="Close screenshot viewer"
+                ref={closeButtonRef}
                 onClick={(e) => {
                   e.stopPropagation();
                   setLightboxIdx(null);
-                  stopHoverAdvance();
                 }}
                 className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
               >
@@ -407,42 +471,30 @@ function ScreenshotGallery({
           </div>
 
           <div
-            className="relative max-w-6xl max-h-[80vh] mx-4 cursor-pointer"
+            className="relative flex h-[min(76vh,900px)] w-[min(92vw,1400px)] items-center justify-center mx-4"
             onClick={(e) => e.stopPropagation()}
-            onMouseEnter={startHoverAdvance}
-            onMouseLeave={stopHoverAdvance}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={screenshotURL(analysisId, screenshots[lightboxIdx])}
-              alt={screenshots[lightboxIdx]}
-              className="max-w-full max-h-[80vh] rounded shadow-2xl"
-            />
-            <div className="absolute bottom-3 inset-x-0 text-center pointer-events-none">
-              <span className="bg-black/50 text-white/70 text-xs px-3 py-1 rounded-full">
-                Hover to auto-advance • ← → keys
-              </span>
-            </div>
+            <ScreenshotImage analysisId={analysisId} filename={screenshots[lightboxIdx]} alt={`Screenshot ${lightboxIdx + 1}`} fit="contain" retryable />
           </div>
 
-          {lightboxIdx > 0 && (
+          {screenshots.length > 1 && (
             <button
+              aria-label="Previous screenshot"
               onClick={(e) => {
                 e.stopPropagation();
-                stopHoverAdvance();
-                setLightboxIdx(lightboxIdx - 1);
+                setLightboxIdx((lightboxIdx - 1 + screenshots.length) % screenshots.length);
               }}
               className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
             >
               <IoChevronBack className="w-6 h-6 text-white" />
             </button>
           )}
-          {lightboxIdx < screenshots.length - 1 && (
+          {screenshots.length > 1 && (
             <button
+              aria-label="Next screenshot"
               onClick={(e) => {
                 e.stopPropagation();
-                stopHoverAdvance();
-                setLightboxIdx(lightboxIdx + 1);
+                setLightboxIdx((lightboxIdx + 1) % screenshots.length);
               }}
               className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
             >
@@ -455,9 +507,10 @@ function ScreenshotGallery({
               {screenshots.map((name, idx) => (
                 <button
                   key={name}
+                  aria-label={`Show screenshot ${idx + 1}`}
+                  aria-current={idx === lightboxIdx ? "true" : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
-                    stopHoverAdvance();
                     setLightboxIdx(idx);
                   }}
                   className={`flex-shrink-0 w-16 h-10 rounded overflow-hidden border-2 transition-all ${
@@ -466,13 +519,7 @@ function ScreenshotGallery({
                       : "border-white/20 opacity-60 hover:opacity-100"
                   }`}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={screenshotURL(analysisId, name)}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
+                  <ScreenshotImage analysisId={analysisId} filename={name} alt="" fit="cover" />
                 </button>
               ))}
             </div>
