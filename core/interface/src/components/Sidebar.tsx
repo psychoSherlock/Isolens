@@ -6,7 +6,6 @@ import {
   IoSearchOutline, 
   IoDocumentTextOutline, 
   IoTimeOutline, 
-  IoShieldOutline,
   IoSettingsOutline,
   IoHeadsetOutline
 } from "react-icons/io5";
@@ -29,11 +28,11 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-white h-screen flex flex-col border-r border-slate-200 shadow-sm z-10">
+    <aside className="app-sidebar flex flex-col border-r border-slate-200 z-10">
       {/* Logo */}
-      <div className="px-6 py-6 flex items-center justify-start border-b border-transparent">
-        <div className="w-8 h-8 rounded bg-slate-800 text-white flex items-center justify-center mr-3 font-bold text-lg tracking-wider">
-          IS
+      <div className="px-6 py-6 flex items-center justify-start">
+        <div className="brand-mark mr-3" aria-hidden="true">
+          <span />
         </div>
         <h1 className="text-xl font-bold tracking-tight text-slate-900">
           IsoLens
@@ -52,10 +51,11 @@ export default function Sidebar() {
               <li key={item.name}>
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors border-l-4 ${
+                  aria-current={isActive ? "page" : undefined}
+                  className={`nav-link flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors ${
                     isActive
-                      ? "border-blue-600 bg-blue-50/50 text-blue-700"
-                      : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      ? "is-active text-blue-700"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                   }`}
                 >
                   <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
@@ -68,7 +68,7 @@ export default function Sidebar() {
       </nav>
       
       {/* Footer */}
-      <div className="px-6 py-4 border-t border-slate-100 pb-6">
+      <div className="sidebar-footer px-6 py-4 border-t border-slate-100 pb-6">
         <p className="text-xs text-slate-400 font-medium">Sandbox Version 0.1.0</p>
       </div>
     </aside>

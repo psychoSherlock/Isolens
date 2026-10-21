@@ -344,22 +344,22 @@ export default function ScanPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+      <div className="flex items-center justify-between pb-1">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-            New Scan
+          <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            Start a scan
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Submit a suspicious file for dynamic behavioral analysis
+            Run a file in the isolated Windows sandbox and review its behavior.
           </p>
         </div>
       </div>
 
       {/* ── Upload & Scan ──────────────────────────── */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-          <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">
-            File Submission
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h2 className="text-base font-semibold text-slate-800">
+            Choose a file
           </h2>
         </div>
 
@@ -368,6 +368,15 @@ export default function ScanPage() {
           <div className="flex-1">
             <div
               onDrop={handleDrop}
+              role="button"
+              tabIndex={0}
+              aria-label="Choose a file to scan"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleBrowse();
+                }
+              }}
               onDragOver={(e) => {
                 e.preventDefault();
                 setIsDragOver(true);
@@ -416,11 +425,18 @@ export default function ScanPage() {
             />
 
             {/* Progress bar */}
-            <div className="flex items-center gap-4 mt-5">
+            <div className="flex items-center gap-4 mt-5" aria-live="polite">
               <span className="text-sm font-medium text-slate-600 whitespace-nowrap truncate min-w-[140px]">
                 {statusMsg}
               </span>
-              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"
+                role="progressbar"
+                aria-label="Scan progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+              >
                 <div
                   className={`h-full transition-all duration-500 ${
                     scanState === "failed"

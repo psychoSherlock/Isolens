@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { IoNotificationsOutline } from "react-icons/io5";
+import { usePathname } from "next/navigation";
 import { ping } from "@/lib/api";
 
 export default function Header() {
+  const pathname = usePathname();
   const [gatewayOk, setGatewayOk] = useState<boolean | null>(null);
+  const pageName = pathname === "/" || pathname === "/scan" ? "New scan" :
+    pathname === "/reports" ? "Reports" :
+    pathname === "/scan-history" ? "Scan history" :
+    pathname === "/settings" ? "Settings" : "Help & support";
 
   useEffect(() => {
     const check = async () => {
@@ -22,9 +27,10 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-end px-6 gap-4 z-10">
+    <header className="app-header flex items-center justify-between px-8 z-10">
+      <h1 className="text-lg font-semibold text-slate-800">{pageName}</h1>
       {/* Gateway status indicator */}
-      <div className="flex items-center gap-2 mr-auto">
+      <div className="gateway-status flex items-center gap-2">
         <span
           className={`w-2 h-2 rounded-full shadow-sm ${
             gatewayOk === null
@@ -34,21 +40,12 @@ export default function Header() {
                 : "bg-red-500"
           }`}
         />
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        <span className="text-xs font-medium text-slate-600">
           Gateway{" "}
           {gatewayOk === null ? "..." : gatewayOk ? "Online" : "Offline"}
         </span>
       </div>
 
-      {/* Notification Bell */}
-      <button className="p-2 border border-slate-200 hover:bg-slate-50 rounded-md transition-colors text-slate-500 hover:text-slate-800">
-        <IoNotificationsOutline className="w-4 h-4" />
-      </button>
-
-      {/* User Avatar */}
-      <div className="w-8 h-8 rounded border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden cursor-pointer hover:bg-slate-100 transition-colors">
-        <span className="text-slate-700 font-bold text-xs uppercase">Admin</span>
-      </div>
     </header>
   );
 }
