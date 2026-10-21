@@ -83,6 +83,69 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
   border-radius: 14px;
   box-shadow: 0 4px 18px #30264a08;
 }
+.app-content .scan-dropzone {
+  min-height: 248px;
+  border-color: #c9bce9;
+  background-color: #faf9fd;
+  background-image: radial-gradient(#cfc4e9 0.75px, transparent 0.75px);
+  background-size: 18px 18px;
+  border-radius: 14px;
+}
+.app-content .scan-dropzone:hover,
+.app-content .scan-dropzone:focus-visible {
+  border-color: var(--violet);
+  background-color: #f5f1fc;
+}
+.app-content .scan-dropzone > div:first-child {
+  width: 54px;
+  height: 54px;
+  border: 1px solid #e3dcf2;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 6px 18px #60439b14;
+}
+.app-content .scan-dropzone > div:first-child svg { color: var(--violet); }
+.environment-card[data-idle="true"] .environment-details {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(260px, 1.2fr) minmax(190px, .9fr);
+  align-items: center;
+  gap: 28px;
+}
+.environment-card[data-idle="true"] .environment-summary {
+  flex-direction: row;
+  align-items: center;
+  text-align: left;
+  gap: 14px;
+  margin: 0;
+}
+.environment-card[data-idle="true"] .environment-emblem {
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  flex: none;
+}
+.environment-card[data-idle="true"] .environment-emblem > .absolute {
+  border-width: 3px;
+}
+.environment-card[data-idle="true"] .environment-summary h3 { margin: 0; }
+.environment-card[data-idle="true"] .environment-summary p { margin: 3px 0 0; }
+.environment-card[data-idle="true"] .environment-telemetry {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.environment-card[data-idle="true"] > div:first-child {
+  background: #fff;
+}
+.app-content button.scan-primary:not(:disabled) {
+  border-color: var(--violet);
+  background: var(--violet);
+  box-shadow: 0 7px 16px #765ac933;
+}
+.app-content button.scan-primary:not(:disabled):hover { background: #654bb7; }
 .app-content button:not(:disabled), .app-content a { cursor: pointer; }
 .app-content button:disabled { cursor: not-allowed; }
 
@@ -106,6 +169,9 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
   .app-main { min-height: calc(100vh - 102px); }
   .app-header { min-height: 58px; padding: 0 18px; }
   .app-content { padding: 20px 16px; }
+  .environment-card[data-idle="true"] .environment-details { grid-template-columns: 1fr; gap: 20px; }
+  .environment-card[data-idle="true"] .environment-summary { justify-content: flex-start; }
+  .environment-card[data-idle="true"] .environment-telemetry { grid-template-columns: 1fr 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

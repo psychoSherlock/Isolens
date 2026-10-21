@@ -382,7 +382,7 @@ export default function ScanPage() {
                 setIsDragOver(true);
               }}
               onDragLeave={() => setIsDragOver(false)}
-              className={`border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-center min-h-[220px] transition-colors cursor-pointer ${
+              className={`scan-dropzone border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-center min-h-[220px] transition-colors cursor-pointer ${
                 isDragOver
                   ? "border-blue-400 bg-blue-50/30"
                   : "border-slate-300 bg-slate-50/50 hover:bg-slate-50"
@@ -553,12 +553,12 @@ export default function ScanPage() {
                   scanState === "running" ||
                   scanState === "uploading"
                 }
-                className={`w-full font-semibold py-2.5 rounded text-sm flex items-center justify-center gap-2 transition-colors border ${
+                className={`scan-primary w-full font-semibold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 transition-colors border ${
                   !selectedFile ||
                   scanState === "running" ||
                   scanState === "uploading"
                     ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                    : "bg-slate-900 border-slate-900 text-white hover:bg-slate-800"
+                : "bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
                 }`}
               >
                 {scanState === "uploading" ? (
@@ -665,7 +665,7 @@ export default function ScanPage() {
       {/* ── Sandbox Live Preview & Status ─────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Live VM Preview */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col min-h-[400px]">
+        {scanState === "running" && <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col min-h-[400px]">
           <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider flex items-center gap-2">
               <IoDesktopOutline className="w-4 h-4 text-blue-500" />
@@ -728,18 +728,21 @@ export default function ScanPage() {
               Frames refreshing automatically every 2s
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Sandbox Status */}
-        <div className="lg:col-span-1 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+        <div
+          className={`environment-card bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col ${scanState === "running" ? "lg:col-span-1" : "lg:col-span-3"}`}
+          data-idle={scanState !== "running"}
+        >
           <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
             <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wider">
               Environment Status
             </h2>
           </div>
-          <div className="p-6 flex-1 flex flex-col">
-            <div className="flex flex-col items-center text-center mb-6">
-              <div className="relative w-16 h-16 flex items-center justify-center mb-4">
+          <div className="environment-details p-6 flex-1 flex flex-col">
+            <div className="environment-summary flex flex-col items-center text-center mb-6">
+              <div className="environment-emblem relative w-16 h-16 flex items-center justify-center mb-4">
                 <div className="absolute inset-0 rounded-full border-4 border-slate-100" />
                 {scanState === "running" ? (
                   <>
@@ -825,7 +828,7 @@ export default function ScanPage() {
               </button>
             </div>
 
-            <div className="space-y-3 mt-auto pt-4 border-t border-slate-100">
+            <div className="environment-telemetry space-y-3 mt-auto pt-4 border-t border-slate-100">
               <div className="flex justify-between items-center text-sm">
                 <span className="text-slate-500">Agent Status</span>
                 {scanState === "running" || agentStatus === "Active" ? (

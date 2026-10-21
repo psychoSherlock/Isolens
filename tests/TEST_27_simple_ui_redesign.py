@@ -14,6 +14,9 @@ checks = {
     ) and 'href: "/sandbox"' not in sidebar,
     "accessible_scan_progress": 'role="progressbar"' in scan and 'aria-valuenow={progress}' in scan,
     "report_flow_preserved": "AIPipelineAnimation" in reports,
+    "idle_preview_hidden": '{scanState === "running" && <div className="lg:col-span-2' in scan,
+    "compact_sandbox_controls": 'className="environment-details p-6' in scan and 'data-idle={scanState !== "running"}' in scan,
+    "violet_scan_action": "scan-primary" in scan and ".app-content button.scan-primary" in styles,
     "responsive_navigation": "@media (max-width: 760px)" in styles,
     "reduced_motion": "prefers-reduced-motion: reduce" in styles,
 }
