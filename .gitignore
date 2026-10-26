@@ -1,5 +1,7 @@
 core/storage/logs/
 core/storage/samples/
+samples/binaries/
+samples/uploads/
 core/storage/database/
 core/storage/reports/
 *.vdi

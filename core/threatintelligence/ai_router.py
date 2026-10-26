@@ -46,6 +46,7 @@ log = logging.getLogger("isolens.ai_router")
 PROVIDER_NVIDIA = "nvidia-nim"
 PROVIDER_GEMINI = "google-gemini"
 PROVIDER_COPILOT = "copilot"
+PROVIDER_LOCAL = "local-ollama"
 
 DEFAULT_PROVIDER_CHAIN = [PROVIDER_NVIDIA, PROVIDER_GEMINI, PROVIDER_COPILOT]
 
@@ -54,6 +55,10 @@ DEFAULT_NVIDIA_MODEL = "meta/llama-3.3-70b-instruct"
 
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+
+DEFAULT_LOCAL_URL = "http://10.42.0.88:11434"
+DEFAULT_LOCAL_MODEL = "llama3.1:8b"
+NVIDIA_NIM_TIMEOUT_SECONDS = 120.0
 
 
 class ThreatIntelAIRouter:
@@ -69,6 +74,8 @@ class ThreatIntelAIRouter:
         nvidia_base_url: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
         gemini_model: Optional[str] = None,
+        local_model_url: Optional[str] = None,
+        local_model: Optional[str] = None,
         provider_chain: Optional[List[str]] = None,
     ) -> None:
         self.working_directory = working_directory
@@ -106,8 +113,30 @@ class ThreatIntelAIRouter:
         ).strip()
         self.gemini_base_url = DEFAULT_GEMINI_BASE_URL.rstrip("/")
 
-        # Chain sequence
-        self.provider_chain = list(provider_chain or DEFAULT_PROVIDER_CHAIN)
+        # Local / LAN Model Settings (Ollama API compatible)
+        self.local_model_url = (
+            local_model_url
+            or os.getenv("LOCAL_MODEL_URL")
+            or os.getenv("OLLAMA_BASE_URL")
+            or DEFAULT_LOCAL_URL
+        ).rstrip("/")
+        self.local_model = (
+            local_model
+            or os.getenv("LOCAL_MODEL_NAME")
+            or os.getenv("OLLAMA_MODEL")
+            or DEFAULT_LOCAL_MODEL
+        ).strip()
+
+        # Chain sequence (explicit argument > AI_PROVIDER_CHAIN env > DEFAULT_PROVIDER_CHAIN)
+        if provider_chain is not None:
+            self.provider_chain = list(provider_chain)
+        else:
+            env_chain = os.getenv("AI_PROVIDER_CHAIN")
+            if env_chain:
+                self.provider_chain = [p.strip() for p in env_chain.split(",") if p.strip()]
+            else:
+                self.provider_chain = list(DEFAULT_PROVIDER_CHAIN)
+
         self._agents = list_default_agents()
         self._copilot_service: Optional[ThreatIntelCopilotService] = None
 
@@ -119,7 +148,10 @@ class ThreatIntelAIRouter:
             configured.append(f"NVIDIA({self.nvidia_model})")
         if self.gemini_api_key:
             configured.append(f"Gemini({self.gemini_model})")
-        configured.append("Copilot(gpt-5-mini)")
+        copilot_m = os.getenv("COPILOT_MODEL", "gpt-4.1")
+        configured.append(f"Copilot({copilot_m})")
+        if self.local_model_url:
+            configured.append(f"Local({self.local_model}@{self.local_model_url})")
 
         return " -> ".join(configured)
 
@@ -129,6 +161,7 @@ class ThreatIntelAIRouter:
 
     def get_provider_status(self) -> Dict[str, Any]:
         """Inspect and return the availability of all AI providers."""
+        copilot_m = os.getenv("COPILOT_MODEL", "gpt-4.1")
         return {
             "nvidia_nim": {
                 "configured": bool(self.nvidia_api_key),
@@ -143,8 +176,14 @@ class ThreatIntelAIRouter:
             },
             "github_copilot": {
                 "configured": True,  # Uses local copilot auth or token
-                "model": "gpt-5-mini",
+                "model": copilot_m,
                 "priority": 3,
+            },
+            "local_ollama": {
+                "configured": bool(self.local_model_url),
+                "model": self.local_model,
+                "url": self.local_model_url,
+                "priority": 4,
             },
             "active_chain": self.provider_chain,
         }
@@ -264,6 +303,35 @@ class ThreatIntelAIRouter:
             raise ValueError("Copilot returned empty response.")
         return str(content)
 
+    async def _call_local_ollama(
+        self, agent: ThreatIntelAgent, prompt: str, timeout: float = 60.0
+    ) -> str:
+        """Call locally or LAN-hosted Ollama model (e.g. at 10.42.0.88:11434)."""
+        url = f"{self.local_model_url}/api/chat"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "model": self.local_model,
+            "messages": [
+                {"role": "system", "content": agent.prompt},
+                {"role": "user", "content": prompt},
+            ],
+            "format": "json",
+            "stream": False,
+        }
+        client_timeout = httpx.Timeout(timeout=timeout, connect=4.0)
+        async with httpx.AsyncClient(timeout=client_timeout) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Local Ollama model error {resp.status_code}: {resp.text[:300]}"
+                )
+            data = resp.json()
+
+        content = data.get("message", {}).get("content", "")
+        if not content:
+            raise ValueError("Local Ollama model returned empty content.")
+        return str(content)
+
     # -----------------------------------------------------------------------
     # Main Chat Router Interface
     # -----------------------------------------------------------------------
@@ -302,7 +370,19 @@ class ThreatIntelAIRouter:
                         log.debug("NVIDIA NIM skipped: No API key configured.")
                         continue
                     log.info("Routing request for '%s' to NVIDIA NIM (%s)...", agent_name, self.nvidia_model)
-                    response_text = await self._call_nvidia_nim(agent, prompt, timeout=timeout)
+                    try:
+                        response_text = await asyncio.wait_for(
+                            self._call_nvidia_nim(
+                                agent,
+                                prompt,
+                                timeout=NVIDIA_NIM_TIMEOUT_SECONDS,
+                            ),
+                            timeout=NVIDIA_NIM_TIMEOUT_SECONDS,
+                        )
+                    except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+                        raise TimeoutError(
+                            f"NVIDIA NIM request timed out after {NVIDIA_NIM_TIMEOUT_SECONDS:.0f} seconds"
+                        ) from exc
                     elapsed = round(time.time() - t0, 2)
                     log.info("NVIDIA NIM successfully handled '%s' in %.2fs", agent_name, elapsed)
                     return {
@@ -334,7 +414,8 @@ class ThreatIntelAIRouter:
                     }
 
                 elif provider == PROVIDER_COPILOT:
-                    log.info("Routing request for '%s' to GitHub Copilot (gpt-5-mini)...", agent_name)
+                    copilot_m = os.getenv("COPILOT_MODEL", "gpt-4.1")
+                    log.info("Routing request for '%s' to GitHub Copilot (%s)...", agent_name, copilot_m)
                     response_text = await self._call_copilot(agent, prompt, timeout=timeout)
                     elapsed = round(time.time() - t0, 2)
                     log.info("GitHub Copilot successfully handled '%s' in %.2fs", agent_name, elapsed)
@@ -344,13 +425,32 @@ class ThreatIntelAIRouter:
                         "prompt": prompt,
                         "response": response_text,
                         "provider": PROVIDER_COPILOT,
-                        "model": "gpt-5-mini",
+                        "model": copilot_m,
+                        "latency_sec": elapsed,
+                    }
+
+                elif provider == PROVIDER_LOCAL:
+                    log.info("Routing request for '%s' to Local/LAN Model (%s at %s)...", agent_name, self.local_model, self.local_model_url)
+                    response_text = await self._call_local_ollama(agent, prompt, timeout=timeout)
+                    elapsed = round(time.time() - t0, 2)
+                    log.info("Local/LAN model successfully handled '%s' in %.2fs", agent_name, elapsed)
+                    return {
+                        "agent": agent.name,
+                        "agent_display_name": agent.display_name,
+                        "prompt": prompt,
+                        "response": response_text,
+                        "provider": PROVIDER_LOCAL,
+                        "model": self.local_model,
                         "latency_sec": elapsed,
                     }
 
             except Exception as exc:
-                err_msg = f"{provider} failed: {exc}"
-                log.warning("[AIRouter] %s. Cascading to next provider in chain...", err_msg)
+                err_msg = f"{provider} failed ({type(exc).__name__}): {exc!r}"
+                log.warning(
+                    "[AIRouter] %s. Cascading to next provider in chain...",
+                    err_msg,
+                    exc_info=True,
+                )
                 errors.append(err_msg)
 
         # If all providers failed or no keys were configured

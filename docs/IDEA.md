@@ -1,3 +1,6 @@
+### 💡 Additional Specialized Proposals & Modules:
+- **[GUI Screen Text Triage with Laya (System 1 Model)](GUI_TEXT_TRIAGE_WITH_LAYA.md)**: Two-tier extraction (OS Win32/Filesystem + Visual OCR Fallback) paired with Laya for sub-second detection of ransomware extortion notes, fake AV scareware, and credential phishing prompts.
+
 ## The Idea & The Solution:
 Ok so Here is the idea: To Create a locally running version of Any.run
 Like mobsf for android.

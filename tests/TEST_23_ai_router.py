@@ -27,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.threatintelligence.ai_router import (
     DEFAULT_PROVIDER_CHAIN,
+    NVIDIA_NIM_TIMEOUT_SECONDS,
     PROVIDER_COPILOT,
     PROVIDER_GEMINI,
     PROVIDER_NVIDIA,
@@ -62,6 +63,7 @@ def run_checks():
         gemini_api_key="test-gemini-key",
         nvidia_model="meta/llama-3.3-70b-instruct",
         gemini_model="gemini-2.0-flash",
+        provider_chain=DEFAULT_PROVIDER_CHAIN,
     )
     status = router.get_provider_status()
     c1 = (
@@ -95,12 +97,20 @@ def run_checks():
     }
 
     async def _test_nvidia_success():
+        observed_timeouts = []
+        original_wait_for = asyncio.wait_for
+
+        async def _spy_wait_for(awaitable, *, timeout):
+            observed_timeouts.append(timeout)
+            return await original_wait_for(awaitable, timeout=timeout)
+
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
             mock_post.return_value = mock_nv_response
-            res = await router.chat(
-                agent_name="sysmon-analyzer",
-                prompt="Test sysmon prompt data",
-            )
+            with patch("core.threatintelligence.ai_router.asyncio.wait_for", new=_spy_wait_for):
+                res = await router.chat(
+                    agent_name="sysmon-analyzer",
+                    prompt="Test sysmon prompt data",
+                )
             # Verify URL and authorization header
             call_url = mock_post.call_args[0][0]
             call_headers = mock_post.call_args[1]["headers"]
@@ -109,7 +119,12 @@ def run_checks():
             c2_auth = call_headers.get("Authorization") == "Bearer test-nv-key"
             c2_model = call_json.get("model") == "meta/llama-3.3-70b-instruct"
             c2_provider = res.get("provider") == PROVIDER_NVIDIA
-            return c2_url and c2_auth and c2_model and c2_provider, res
+            c2_timeout = observed_timeouts == [NVIDIA_NIM_TIMEOUT_SECONDS]
+            return c2_url and c2_auth and c2_model and c2_provider and c2_timeout, {
+                "provider": res.get("provider"),
+                "model": res.get("model"),
+                "nvidia_timeout_seconds": observed_timeouts,
+            }
 
     ok2, res2 = asyncio.run(_test_nvidia_success())
     check("tier1_nvidia_nim_dispatch", ok2, f"NVIDIA NIM response: provider={res2.get('provider')}, model={res2.get('model')}")
@@ -153,6 +168,28 @@ def run_checks():
 
     ok3, res3 = asyncio.run(_test_gemini_fallback())
     check("tier2_gemini_fallback_on_nvidia_failure", ok3, f"Gemini response: provider={res3.get('provider')}, model={res3.get('model')}")
+
+    async def _test_nvidia_timeout_fallback():
+        with patch.object(router, "_call_nvidia_nim", new_callable=AsyncMock) as mock_nvidia, \
+             patch.object(router, "_call_gemini", new_callable=AsyncMock) as mock_gemini:
+            mock_nvidia.side_effect = asyncio.TimeoutError()
+            mock_gemini.return_value = json.dumps({"tool": "metadata", "verdict": "clean"})
+            res = await router.chat(
+                agent_name="metadata-analyzer",
+                prompt="Test metadata prompt data",
+            )
+            return (
+                res.get("provider") == PROVIDER_GEMINI
+                and mock_gemini.called
+                and mock_nvidia.await_args.kwargs.get("timeout") == NVIDIA_NIM_TIMEOUT_SECONDS
+            ), res
+
+    ok_timeout, res_timeout = asyncio.run(_test_nvidia_timeout_fallback())
+    check(
+        "nvidia_timeout_uses_two_minute_deadline_then_falls_back",
+        ok_timeout,
+        f"Fallback provider={res_timeout.get('provider')}; NVIDIA deadline={NVIDIA_NIM_TIMEOUT_SECONDS:.0f}s",
+    )
 
     # Check 4: Tier 3 (Copilot) fallback when both NVIDIA and Gemini fail
     async def _test_copilot_fallback():

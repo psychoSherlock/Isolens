@@ -81,9 +81,38 @@ export interface CollectorInfo {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
+async function parseApiResponse<T>(res: Response): Promise<ApiResponse<T>> {
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    return {
+      status: "error",
+      data: null,
+      error: {
+        message: `Gateway returned HTTP ${res.status}: ${res.statusText || "Unexpected response"}`,
+        details: text.slice(0, 500),
+      },
+    };
+  }
+
+  try {
+    const json = (await res.json()) as ApiResponse<T>;
+    return json;
+  } catch (err) {
+    return {
+      status: "error",
+      data: null,
+      error: {
+        message: "Failed to parse JSON response from gateway",
+        details: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
 async function get<T>(url: string): Promise<ApiResponse<T>> {
   const res = await fetch(url);
-  return res.json();
+  return parseApiResponse<T>(res);
 }
 
 async function post<T>(
@@ -95,7 +124,7 @@ async function post<T>(
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return res.json();
+  return parseApiResponse<T>(res);
 }
 
 // ─── System ───────────────────────────────────────────────────────────────
@@ -209,7 +238,7 @@ export async function submitAnalysis(
     `/api/analysis/submit?timeout=${timeout}&screenshot_interval=${screenshotInterval}`,
     { method: "POST", body: formData },
   );
-  return res.json();
+  return parseApiResponse<AnalysisResult>(res);
 }
 
 export async function getAnalysisStatus() {
@@ -256,9 +285,7 @@ export async function listReports() {
 
 export async function clearAllReports() {
   const res = await fetch("/api/analysis/reports/clear", { method: "DELETE" });
-  return res.json() as Promise<
-    ApiResponse<{ deleted: number; message: string }>
-  >;
+  return parseApiResponse<{ deleted: number; message: string }>(res);
 }
 
 // ─── Report Data (detailed collector output) ─────────────────────────────
@@ -317,7 +344,16 @@ export interface ProcmonData {
 
 export interface NetworkData {
   tcp_conversations?: string;
-  dns_queries?: string[];
+  dns_queries?: (string | {
+    domain?: string;
+    query?: string;
+    query_type?: string;
+    resolved_ips?: string[];
+    process_name?: string;
+    pid?: string | number;
+    timestamp?: string;
+    is_noise?: boolean;
+  })[];
   http_requests?: { host: string; uri: string; method: string }[];
   tcp_error?: string;
   dns_error?: string;
@@ -335,9 +371,157 @@ export interface CollectorMeta {
   error?: string;
 }
 
+export interface YaraMatch {
+  rule: string;
+  category: string;
+  severity: "critical" | "high" | "medium" | "low" | string;
+  mitre_technique?: string;
+  description?: string;
+  tags?: string[];
+  matched_strings?: string[];
+}
+
+export interface YaraMitre {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface YaraData {
+  status: string;
+  scanned_file?: string;
+  engine: string;
+  matched_rules_count: number;
+  threat_level: "critical" | "high" | "medium" | "low" | "clean" | string;
+  tags: string[];
+  matches: YaraMatch[];
+  mitre_attack: YaraMitre[];
+}
+
+export interface LstmData {
+  verdict: "MALICIOUS" | "BENIGN" | string;
+  confidence: number;
+  p_malware: number;
+  p_benign: number;
+  sequence_length: number;
+  recognized_apis_count: number;
+  recognized_ratio: number;
+  windows_evaluated: number;
+  peak_window_range?: [number, number];
+  sample_process?: string;
+  unique_apis?: string[];
+  source_type?: string;
+  note?: string;
+  inferred_from_behavior?: boolean;
+}
+
+export interface FlaggedWindow {
+  filename: string;
+  filepath?: string;
+  original_size?: [number, number];
+  window_bbox?: [number, number, number, number];
+  ocr_text?: string;
+  ocr_text_length?: number;
+  verdict: string;
+  is_malicious: boolean;
+  threat_type: string;
+  confidence: number;
+  matched_keywords: string[];
+  engine?: string;
+}
+
+export interface GuiData {
+  sample?: string;
+  total_screenshots: number;
+  has_malicious_gui: boolean;
+  highest_threat_type?: string;
+  max_confidence?: number;
+  flagged_count: number;
+  flagged_windows: FlaggedWindow[];
+}
+
+export interface RiskBreakdownLayer {
+  layer: string;
+  points: number;
+  confidence: number;
+  summary: string;
+  details?: unknown;
+}
+
+export interface RiskData {
+  risk_score: number;
+  threat_level: "Critical" | "High" | "Medium" | "Low" | "Benign" | string;
+  max_score: number;
+  raw_sum: number;
+  total_layers_flagged: number;
+  breakdown: RiskBreakdownLayer[];
+  mitre_attack: { id: string; name: string; tactic?: string; description?: string }[];
+}
+
+export interface BehaviorSummary {
+  sample_process?: string;
+  summary: {
+    total_files_created: number;
+    total_files_written: number;
+    total_sensitive_reads: number;
+    total_general_reads: number;
+    total_files_deleted: number;
+    total_registry_modified: number;
+    total_registry_created: number;
+    total_registry_deleted: number;
+    total_persistence_keys: number;
+    total_defense_tampering_keys: number;
+  };
+  files?: {
+    created?: string[];
+    written?: string[];
+    sensitive_reads?: string[];
+    general_reads?: string[];
+    deleted?: string[];
+  };
+  registry?: {
+    persistence_keys?: string[];
+    defense_tampering_keys?: string[];
+    sensitive_queries?: string[];
+  };
+}
+
+export interface NetworkDBFinding {
+  severity: string;
+  indicator: string;
+  description: string;
+}
+
+export interface NetworkDBData {
+  tool: string;
+  verdict: "malicious" | "suspicious" | "benign" | "inconclusive" | string;
+  confidence: number;
+  summary: string;
+  findings: NetworkDBFinding[];
+  iocs: { type: string; value: string }[];
+  details?: {
+    matched_ips_count: number;
+    matched_domains_count: number;
+    matched_urls_count: number;
+    malware_families: string[];
+    threat_types: string[];
+    tags: string[];
+    total_domains_observed?: number;
+    total_ips_observed?: number;
+    total_urls_observed?: number;
+  };
+}
+
 export interface ReportData {
   manifest: AnalysisResult | null;
   metadata: { collectors: CollectorMeta[]; files: string[] } | null;
+  yara: YaraData | null;
+  lstm: LstmData | null;
+  behavior: BehaviorSummary | null;
+  gui: GuiData | null;
+  risk: RiskData | null;
+  network_db: NetworkDBData | null;
+  ai_report: AIReport | null;
   sysmon: SysmonData | null;
   procmon: ProcmonData | null;
   network: NetworkData | null;
@@ -349,6 +533,42 @@ export interface ReportData {
 export async function getReportData(analysisId: string) {
   return get<ReportData>(
     `/api/analysis/report/${encodeURIComponent(analysisId)}/data`,
+  );
+}
+
+export async function getYaraData(analysisId: string) {
+  return get<YaraData>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/yara`,
+  );
+}
+
+export async function getLstmData(analysisId: string) {
+  return get<LstmData>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/lstm`,
+  );
+}
+
+export async function getBehaviorData(analysisId: string) {
+  return get<BehaviorSummary>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/behavior`,
+  );
+}
+
+export async function getGuiData(analysisId: string) {
+  return get<GuiData>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/gui`,
+  );
+}
+
+export async function getRiskData(analysisId: string) {
+  return get<RiskData>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/risk`,
+  );
+}
+
+export async function getNetworkDBData(analysisId: string) {
+  return get<NetworkDBData>(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/network-db`,
   );
 }
 
@@ -433,22 +653,16 @@ export interface AIReport {
 export async function runAIAnalysis(
   analysisId: string,
 ): Promise<ApiResponse<AIReport>> {
-  // AI analysis can take 2-3 minutes (7 Copilot agents), so use a long timeout
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 min
-  try {
-    const res = await fetch(
-      `/api/analysis/report/${encodeURIComponent(analysisId)}/ai-analyze`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-      },
-    );
-    return res.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  // Provider fallback can take several minutes. Let the request finish instead
+  // of aborting it on a fixed client-side deadline.
+  const res = await fetch(
+    `/api/analysis/report/${encodeURIComponent(analysisId)}/ai-analyze`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  return parseApiResponse<AIReport>(res);
 }
 
 export async function getAIReport(analysisId: string) {

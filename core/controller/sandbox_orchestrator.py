@@ -36,6 +36,8 @@ import zipfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from core.controller.vbox_controller import VBoxManageClient
+
 log = logging.getLogger("isolens.orchestrator")
 
 # ─── Default paths ────────────────────────────────────────────────────────
@@ -80,6 +82,12 @@ class AnalysisResult:
     sysmon_events: int = 0
     files_collected: List[str] = field(default_factory=list)
     agent_package: Optional[str] = None
+    risk_score: Optional[int] = None
+    threat_level: Optional[str] = None
+    deterministic_risk_score: Optional[int] = None
+    deterministic_threat_level: Optional[str] = None
+    ai_risk_score: Optional[int] = None
+    ai_threat_level: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -94,6 +102,12 @@ class AnalysisResult:
             "sysmon_events": self.sysmon_events,
             "files_collected": self.files_collected,
             "agent_package": self.agent_package,
+            "risk_score": self.risk_score,
+            "threat_level": self.threat_level,
+            "deterministic_risk_score": self.deterministic_risk_score,
+            "deterministic_threat_level": self.deterministic_threat_level,
+            "ai_risk_score": self.ai_risk_score,
+            "ai_threat_level": self.ai_threat_level,
         }
 
 
@@ -129,6 +143,7 @@ class SandboxOrchestrator:
         self.samples_dir = samples_dir
         self.reports_dir = reports_dir
         self.dry_run = dry_run
+        self.vbox = VBoxManageClient(dry_run=self.dry_run, raise_on_error=False)
 
         # Ensure host directories exist
         for d in (self.samples_dir, self.reports_dir, self.share_dir):
@@ -186,6 +201,19 @@ class SandboxOrchestrator:
         try:
             result.status = "running"
 
+            # Step 0: Ensure VirtualBox shared folder is attached to running VM
+            try:
+                r_vms = self.vbox.list_running_vms()
+                if r_vms.returncode == 0:
+                    from core.modules.vbox_output_parser import parse_list_vms
+                    for v in parse_list_vms(r_vms.stdout):
+                        vname = v.get("name")
+                        if vname:
+                            self.vbox.ensure_shared_folder(vname, "SandboxShare", self.share_dir)
+                            log.info("Ensured shared folder 'SandboxShare' attached to VM '%s'", vname)
+            except Exception as ve:
+                log.warning("Could not auto-attach shared folder via VBoxManage: %s", ve)
+
             # Step 1: Archive sample locally
             stored = os.path.join(
                 self.samples_dir, f"{analysis_id}_{sample_name}"
@@ -213,7 +241,8 @@ class SandboxOrchestrator:
 
             # Step 2: Copy sample to shared folder so the agent can see it
             share_dest = os.path.join(self.share_dir, sample_name)
-            shutil.copy2(sample_path, share_dest)
+            if os.path.abspath(sample_path) != os.path.abspath(share_dest):
+                shutil.copy2(sample_path, share_dest)
             log.info("[2/5] Sample placed in shared folder: %s", share_dest)
 
             # Step 3: Tell the agent to execute
@@ -276,6 +305,153 @@ class SandboxOrchestrator:
                 len(screenshot_files),
             )
 
+            # Fallback direct retrieval of critical artifacts if missing from package
+            artifacts_dir = os.path.join(report_dir, "artifacts")
+            for crit_rel in [
+                os.path.join("tcpvcon", "tcpvcon_snapshot.csv"),
+                os.path.join("procmon", "procmon_summary.json"),
+                os.path.join("handle", "handle_snapshot.txt"),
+                os.path.join("sysmon", "sysmon_summary.json"),
+            ]:
+                target_dest = os.path.join(artifacts_dir, crit_rel)
+                if not os.path.isfile(target_dest):
+                    try:
+                        url = f"{self.agent.base_url}/api/artifact?file={crit_rel.replace(os.sep, '/')}"
+                        with urllib.request.urlopen(url, timeout=5) as resp:
+                            if resp.status == 200:
+                                os.makedirs(os.path.dirname(target_dest), exist_ok=True)
+                                with open(target_dest, "wb") as fh:
+                                    fh.write(resp.read())
+                                rel = os.path.relpath(target_dest, report_dir)
+                                if rel not in result.files_collected:
+                                    result.files_collected.append(rel)
+                                log.info("Directly retrieved missing artifact: %s", crit_rel)
+                    except Exception:
+                        pass
+
+            # Step 5a: Run Network telemetry normalization and offline Threat DB matching
+            try:
+                from core.modules.network_normalizer import normalize_report_directory
+                from core.modules.network_db_matcher import analyze_report_network_with_db
+
+                norm_net = normalize_report_directory(report_dir)
+                net_dir = os.path.join(report_dir, "artifacts", "network")
+                os.makedirs(net_dir, exist_ok=True)
+                net_summary_path = os.path.join(net_dir, "network_summary.json")
+                with open(net_summary_path, "w", encoding="utf-8") as nfh:
+                    json.dump(norm_net, nfh, indent=2)
+                rel_net = os.path.join("artifacts", "network", "network_summary.json")
+                if rel_net not in result.files_collected:
+                    result.files_collected.append(rel_net)
+
+                net_db_res = analyze_report_network_with_db(report_dir)
+                net_db_path = os.path.join(net_dir, "network_threat_intel.json")
+                with open(net_db_path, "w", encoding="utf-8") as ndbfh:
+                    json.dump(net_db_res, ndbfh, indent=2)
+                rel_net_db = os.path.join("artifacts", "network", "network_threat_intel.json")
+                if rel_net_db not in result.files_collected:
+                    result.files_collected.append(rel_net_db)
+
+                log.info(
+                    "Network intelligence complete: %d DNS, %d HTTP, %d connections, %d C2 matches (%s)",
+                    len(norm_net.get("dns_queries", [])),
+                    len(norm_net.get("http_requests", [])),
+                    len(norm_net.get("connections", [])),
+                    len(net_db_res.get("findings", [])),
+                    net_db_res.get("verdict", "clean"),
+                )
+            except Exception as net_exc:
+                log.warning("Network normalization skipped/failed: %s", net_exc)
+
+            # Step 5b: Run LSTM behavioral inference on collected Procmon traces
+            try:
+                from core.modules.predict_lstm import run_lstm_on_report
+                lstm_res = run_lstm_on_report(
+                    report_dir, sample_name=sample_name, save_artifact=True
+                )
+                rel_lstm = os.path.join("artifacts", "lstm", "lstm_prediction.json")
+                if (
+                    os.path.isfile(os.path.join(report_dir, rel_lstm))
+                    and rel_lstm not in result.files_collected
+                ):
+                    result.files_collected.append(rel_lstm)
+                log.info(
+                    "LSTM behavioral prediction: %s (p_malware=%.4f, confidence=%.2f%%)",
+                    lstm_res.get("verdict"),
+                    lstm_res.get("p_malware", 0.0),
+                    lstm_res.get("confidence", 0.0),
+                )
+            except Exception as exc:
+                log.warning("LSTM behavioral inference skipped/failed: %s", exc)
+
+            # Step 5c: Run behavioral normalization and MITRE extraction
+            try:
+                from core.modules.behavior_normalizer import run_behavior_normalizer_on_report
+                behav_res = run_behavior_normalizer_on_report(
+                    report_dir, save_artifact=True
+                )
+                rel_behav = os.path.join("artifacts", "behavior", "behavior_summary.json")
+                if (
+                    os.path.isfile(os.path.join(report_dir, rel_behav))
+                    and rel_behav not in result.files_collected
+                ):
+                    result.files_collected.append(rel_behav)
+                log.info(
+                    "Behavioral normalization complete: %d files written, %d persistence keys, %d MITRE techniques",
+                    behav_res.get("summary", {}).get("total_files_written", 0),
+                    behav_res.get("summary", {}).get("total_persistence_keys", 0),
+                    len(behav_res.get("mitre_attack", [])),
+                )
+            except Exception as exc:
+                log.warning("Behavioral normalization skipped/failed: %s", exc)
+
+            # Step 5d: Run GUI screen analysis (window cropping, OCR & Laya System 1 threat triage)
+            try:
+                from core.modules.gui_analyzer import run_gui_analyzer_on_report
+                gui_res = run_gui_analyzer_on_report(
+                    report_dir, sample_name=sample_name, save_artifact=True
+                )
+                rel_gui = os.path.join("artifacts", "gui", "gui_analysis.json")
+                if (
+                    os.path.isfile(os.path.join(report_dir, rel_gui))
+                    and rel_gui not in result.files_collected
+                ):
+                    result.files_collected.append(rel_gui)
+                log.info(
+                    "GUI Screen Analysis complete: %d screenshots evaluated, malicious=%s (highest=%s, max_conf=%.2f)",
+                    gui_res.get("total_screenshots", 0),
+                    gui_res.get("has_malicious_gui", False),
+                    gui_res.get("highest_threat_type", "benign"),
+                    gui_res.get("max_confidence", 0.0),
+                )
+            except Exception as exc:
+                log.warning("GUI screen analysis skipped/failed: %s", exc)
+
+            # Step 5e: Run unified deterministic risk scoring
+            try:
+                from core.modules.risk_scorer import run_risk_scorer_on_report
+                risk_res = run_risk_scorer_on_report(
+                    report_dir, save_artifact=True
+                )
+                result.risk_score = risk_res.get("risk_score", 0)
+                result.threat_level = risk_res.get("threat_level", "Unknown")
+                result.deterministic_risk_score = result.risk_score
+                result.deterministic_threat_level = result.threat_level
+                rel_risk = os.path.join("artifacts", "risk", "risk_score.json")
+                if (
+                    os.path.isfile(os.path.join(report_dir, rel_risk))
+                    and rel_risk not in result.files_collected
+                ):
+                    result.files_collected.append(rel_risk)
+                log.info(
+                    "Deterministic Risk Scoring complete: score=%d/100 (level=%s, layers_flagged=%d)",
+                    result.risk_score,
+                    result.threat_level,
+                    risk_res.get("total_layers_flagged", 0),
+                )
+            except Exception as exc:
+                log.warning("Deterministic risk scoring skipped/failed: %s", exc)
+
             result.status = "complete"
             result.completed_at = (
                 datetime.datetime.utcnow().isoformat() + "Z"
@@ -324,6 +500,18 @@ class SandboxOrchestrator:
 
         # Shared folder accessible on host
         checks["share_folder"] = os.path.isdir(self.share_dir)
+
+        # Ensure shared folder is attached to running VM
+        try:
+            r_vms = self.vbox.list_running_vms()
+            if r_vms.returncode == 0:
+                from core.modules.vbox_output_parser import parse_list_vms
+                for v in parse_list_vms(r_vms.stdout):
+                    vname = v.get("name")
+                    if vname:
+                        self.vbox.ensure_shared_folder(vname, "SandboxShare", self.share_dir)
+        except Exception:
+            pass
 
         checks["ready"] = (
             checks.get("agent_reachable", False)

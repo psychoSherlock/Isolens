@@ -2,11 +2,12 @@
 
 import React, { useEffect, useState } from "react";
 import {
+  IoBarcodeOutline,
   IoServerOutline,
   IoHardwareChipOutline,
+  IoGitNetworkOutline,
+  IoDesktopOutline,
   IoGlobeOutline,
-  IoDocumentTextOutline,
-  IoAnalyticsOutline,
   IoSparklesOutline,
   IoShieldCheckmarkOutline,
   IoCheckmarkCircle,
@@ -16,6 +17,7 @@ import {
 
 interface AIPipelineAnimationProps {
   progress?: {
+    status?: string;
     current_action: string;
     completed_agents: number;
     total_agents: number;
@@ -26,11 +28,12 @@ interface AIPipelineAnimationProps {
 /* ─── Agent config ──────────────────────────────────────────────── */
 
 const AGENTS = [
-  { id: "sysmon",  label: "Sysmon Analyzer",   sub: "Process & event logs",    Icon: IoServerOutline,      color: "#7657c9" },
-  { id: "procmon", label: "Procmon Analyzer",   sub: "File & registry ops",     Icon: IoHardwareChipOutline, color: "#9a82d2" },
-  { id: "network", label: "Network Analyzer",   sub: "Traffic & C2 detection",  Icon: IoGlobeOutline,        color: "#4e8993" },
-  { id: "handle",  label: "Handle Analyzer",    sub: "Mutex & file handles",    Icon: IoDocumentTextOutline, color: "#76699f" },
-  { id: "tcpvcon", label: "TCPVcon Analyzer",   sub: "Active connections",      Icon: IoAnalyticsOutline,    color: "#688c78" },
+  { id: "yara",    label: "YARA Rules Engine",    sub: "Signatures & evasion rules", Icon: IoBarcodeOutline,       color: "#e11d48" },
+  { id: "sysmon",  label: "Sysmon Telemetry",     sub: "Process & inject tracking",  Icon: IoServerOutline,        color: "#7c3aed" },
+  { id: "procmon", label: "Procmon Traces",       sub: "Filesystem & registry ops",  Icon: IoHardwareChipOutline,  color: "#2563eb" },
+  { id: "lstm",    label: "BiLSTM Neural Model",  sub: "Sequential API malice eval", Icon: IoGitNetworkOutline,    color: "#0891b2" },
+  { id: "gui",     label: "Laya Screen Triage",   sub: "Ransomware & scam OCR",      Icon: IoDesktopOutline,       color: "#ea580c" },
+  { id: "network", label: "Network Threat DB",    sub: "Feodo & URLhaus C2 lookup",  Icon: IoGlobeOutline,         color: "#059669" },
 ];
 
 /* ─── SVG layout ────────────────────────────────────────────────── */
@@ -79,7 +82,7 @@ export default function AIPipelineAnimation({
   onComplete,
 }: AIPipelineAnimationProps) {
   const completedAgents = progress?.completed_agents ?? 0;
-  const totalAgents     = progress?.total_agents     ?? 6;
+  const totalAgents     = progress?.total_agents || (AGENTS.length + 1);
 
   // drawnLines[i] = true only after agent i has responded (completedAgents > i)
   const [drawnLines, setDrawnLines] = useState<boolean[]>(
@@ -103,9 +106,13 @@ export default function AIPipelineAnimation({
 
   /* ── Drive paths from backend progress only ── */
   useEffect(() => {
+    const isComplete =
+      progress?.status === "complete" ||
+      (completedAgents >= totalAgents && totalAgents > 0);
+
     setDrawnLines((prev) =>
       prev.map((drawn, i) => {
-        const shouldDraw = completedAgents > i;
+        const shouldDraw = isComplete || completedAgents > i;
         if (shouldDraw && !drawn) {
           // bump the key to force CSS animation restart
           setLineKeys((k) => {
@@ -118,12 +125,18 @@ export default function AIPipelineAnimation({
       })
     );
 
-    if (completedAgents >= 5) setSummarizerActive(true);
+    if (
+      isComplete ||
+      completedAgents >= AGENTS.length - 1 ||
+      (totalAgents > 1 && completedAgents >= totalAgents - 1)
+    ) {
+      setSummarizerActive(true);
+    }
 
-    if (completedAgents >= totalAgents && totalAgents > 0) {
+    if (isComplete) {
       setSummarizerDone(true);
     }
-  }, [completedAgents, totalAgents]);
+  }, [completedAgents, totalAgents, progress?.status]);
 
   /* ── After summariser done → draw center→report line → countdown ── */
   useEffect(() => {
@@ -258,7 +271,8 @@ export default function AIPipelineAnimation({
             const drawn = drawnLines[i];
 
             // active = this is the next agent to respond (in front of the queue)
-            const isActive = !drawn && completedAgents === i;
+            const isActive =
+              !drawn && !summarizerDone && !summarizerActive && completedAgents === i;
 
             return (
               <g key={agent.id}>

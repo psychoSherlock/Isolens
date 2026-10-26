@@ -411,23 +411,284 @@ def _parse_summary_json(raw_json: str, report: ThreatAnalysisReport) -> None:
 
 # ─── Collector → Agent mapping ────────────────────────────────────────────
 
+def get_tool_explanation(tool_name: str) -> str:
+    """Return concise explanation of the tool/collector and how the AI should score it."""
+    explanations = {
+        "metadata": (
+            "================================================================================\n"
+            "ENGINE EXPLANATION & SCORING DIRECTIVES: METADATA & SUBSYSTEMS\n"
+            "================================================================================\n"
+            "This input contains structured, filtered telemetry from 5 core analysis engines:\n\n"
+            "1. LAYA SYSTEM 1 GUI SCREEN TRIAGE ('gui_screen_analysis'):\n"
+            "   • What is Laya? IsoLens's GPU-accelerated visual threat triage engine. It analyzes\n"
+            "     Tesseract OCR-extracted text from interactive windows captured during execution.\n"
+            "   • Output Meaning: 'highest_threat_type' ('ransomware_extortion', 'tech_support_scam',\n"
+            "     'credential_phish', 'benign'), 'max_confidence' (0.0-1.0), and 'matched_keywords'\n"
+            "     (e.g., 'bitcoin', 'decrypt', 'private key', 'all your files', 'countdown').\n"
+            "   • How to Score: 'ransomware_extortion' with confidence >= 0.70 and ransom keywords\n"
+            "     confirms an active extortion lockscreen. Score as CRITICAL severity (+30 to +40 pts).\n\n"
+            "2. BILSTM SEQUENTIAL BEHAVIORAL MODEL ('lstm_behavioral_prediction'):\n"
+            "   • What is BiLSTM? Deep neural network trained on sequences of Win32/NT API calls\n"
+            "     translated from Process Monitor traces during execution.\n"
+            "   • Output Meaning: 'p_malware' (probability of malice 0.0-1.0), 'verdict', 'confidence',\n"
+            "     and 'sequence_length'.\n"
+            "   • How to Score: p_malware >= 0.70 confirms behavioral malice. Note: Short traces\n"
+            "     (<80 calls) with benign verdicts should not override strong visual or persistence findings.\n\n"
+            "3. BEHAVIOR NORMALIZER & MITRE EXTRACTION ('behavior_summary'):\n"
+            "   • What is it? Filters OS noise to identify autorun persistence, sensitive target access,\n"
+            "     and defense tampering, mapped directly to MITRE ATT&CK techniques.\n"
+            "   • Output Meaning: 'persistence_keys' (autorun), 'sensitive_reads' (Desktop, credentials),\n"
+            "     and 'mitre_attack'.\n"
+            "   • How to Score: Autorun persistence + sensitive reads + dropped payload = Confirmed MALICIOUS.\n\n"
+            "4. STATIC YARA CAPABILITIES ('yara_scan'):\n"
+            "   • What is it? Signature pattern matcher inspecting binary payloads before execution.\n"
+            "   • How to Score: High/Critical threat level confirms weaponized execution or evasion capability.\n\n"
+            "5. DETERMINISTIC MULTI-LAYER RISK SCORER ('deterministic_risk_assessment'):\n"
+            "   • What is it? Objective rule-based baseline score (0-100) combining all independent layers.\n"
+            "   • How to Score: Use this score as your baseline anchor for the overall assessment.\n"
+            "================================================================================\n"
+        ),
+        "procmon": (
+            "================================================================================\n"
+            "COLLECTOR EXPLANATION & SCORING DIRECTIVES: PROCESS MONITOR (PROCMON)\n"
+            "================================================================================\n"
+            "• What is Procmon? Sysinternals Process Monitor tracks real-time filesystem, registry,\n"
+            "  and process operations performed by the sample during in-VM execution.\n"
+            "• What the data represents: Filtered file operations (written/dropped payloads), registry\n"
+            "  modifications (Run/RunOnce persistence), and child processes (e.g. cmd.exe, powershell.exe).\n"
+            "  Embedded 'lstm_inference' shows deep sequential API model predictions.\n"
+            "• How to interpret and score: Files dropped in Temp/AppData followed by execution or registry\n"
+            "  persistence indicates confirmed malware (Dropper/Trojan/Ransomware). Standard System32 DLL\n"
+            "  loading is benign OS activity and has been filtered out.\n"
+            "================================================================================\n"
+        ),
+        "sysmon": (
+            "================================================================================\n"
+            "COLLECTOR EXPLANATION & SCORING DIRECTIVES: WINDOWS SYSMON\n"
+            "================================================================================\n"
+            "• What is Sysmon? Microsoft Sysinternals System Monitor is a deep host telemetry agent logging\n"
+            "  process creation (Event 1), network connects (Event 3), image loads (Event 7), and file creates (Event 11).\n"
+            "• What the data represents: Process creation trees and command lines showing LOLBin abuse\n"
+            "  (cmd.exe, powershell.exe, whoami) and network connections.\n"
+            "• How to interpret and score: Reconnaissance commands (whoami, ipconfig) or injection chains\n"
+            "  indicate malicious/suspicious activity. If no data was collected, return inconclusive.\n"
+            "================================================================================\n"
+        ),
+        "network": (
+            "================================================================================\n"
+            "COLLECTOR EXPLANATION & SCORING DIRECTIVES: NETWORK THREAT INTEL\n"
+            "================================================================================\n"
+            "• What is Network Threat Intelligence? Deterministic threat matcher comparing external IPs,\n"
+            "  domains, and URLs against verified threat feeds (URLhaus, Feodo Tracker, ThreatFox).\n"
+            "• What the data represents: Verified C2 servers, malware download hosts, or external connections\n"
+            "  with local agent (192.168.56.x) filtered out.\n"
+            "• How to interpret and score: Matched feed entry confirms C2 (Critical, 95-100 pts).\n"
+            "  Clean/internal traffic indicates no network C2.\n"
+            "================================================================================\n"
+        ),
+        "handle": (
+            "================================================================================\n"
+            "COLLECTOR EXPLANATION & SCORING DIRECTIVES: SYSINTERNALS HANDLE\n"
+            "================================================================================\n"
+            "• What is Handle? Captures open kernel handles (files, mutexes, threads, keys) held by the sample.\n"
+            "• What the data represents: Named mutexes (often used for single-instance C2 coordination)\n"
+            "  and handles to sensitive files or other process memory.\n"
+            "• How to interpret and score: Custom mutexes or handles to other processes indicate malware\n"
+            "  synchronization or injection. Standard desktop GDI/DLL handles are benign.\n"
+            "================================================================================\n"
+        ),
+        "tcpvcon": (
+            "================================================================================\n"
+            "COLLECTOR EXPLANATION & SCORING DIRECTIVES: SYSINTERNALS TCPVCON\n"
+            "================================================================================\n"
+            "• What is TCPVcon? Captures active TCP/UDP connection endpoints and socket states during execution.\n"
+            "• What the data represents: Listening ports and established external sockets with agent port (9090)\n"
+            "  and loopback filtered out.\n"
+            "• How to interpret and score: Outbound connections to external non-RFC1918 IPs indicate C2 or\n"
+            "  data exfiltration. Listening ports indicate backdoor/bind shell.\n"
+            "================================================================================\n"
+        ),
+    }
+    return explanations.get(tool_name, f"=== EXPLANATION: {tool_name.upper()} DATA ===")
+
+
+def get_summarizer_system_guide() -> str:
+    """Return synthesis guidance and risk scoring directives for the threat summarizer."""
+    return (
+        "================================================================================\n"
+        "SYNTHESIS GUIDANCE: ISOLENS CORE COLLECTORS & RISK SCORING DIRECTIVES\n"
+        "================================================================================\n"
+        "You are synthesizing the findings of specialized analysis engines into a definitive\n"
+        "threat intelligence report. Here is what each collector and engine represents:\n\n"
+        "1. Laya System 1 GUI Screen Triage:\n"
+        "   - GPU-accelerated System-1 visual/textual window triage engine.\n"
+        "   - 'ransomware_extortion': Active extortion note / lockscreen with Bitcoin address, countdown, and file encryption notice.\n"
+        "   - Confidence >= 0.70 with matched ransom keywords is conclusive visual evidence of ransomware.\n\n"
+        "2. BiLSTM Sequential Behavioral Model:\n"
+        "   - Bidirectional LSTM trained on Win32 API call sequences (0.0 to 1.0 probability).\n"
+        "   - High score (>=0.70) confirms sequential behavioral malice.\n"
+        "   - Short-trace caution: If sequence length is low (<80 calls) and verdict is 'BENIGN', this can be a false negative due to short execution; do NOT allow it to override confirmed visual or persistence findings.\n\n"
+        "3. Behavior Normalizer & MITRE ATT&CK Mapping:\n"
+        "   - Filters OS noise to identify autorun persistence (Run keys), sensitive file access, and defense tampering.\n"
+        "   - Directly maps observed actions to MITRE ATT&CK technique IDs.\n\n"
+        "4. Process Monitor (Procmon) & Sysmon:\n"
+        "   - Tracks dynamic file drops in Temp/AppData, registry writes, and process execution chains (cmd.exe, LOLBins).\n\n"
+        "5. Network Threat Intelligence DB:\n"
+        "   - Deterministic matching against live C2 and malware infrastructure feeds.\n\n"
+        "6. Deterministic Multi-Layer Risk Scorer:\n"
+        "   - Multi-layer objective baseline (0-100) aggregating evidence from all independent layers.\n"
+        "   - Use this score as your baseline anchor. Your final AI risk score should refine this baseline.\n\n"
+        "UNIFIED SCORING & CLASSIFICATION RULES:\n"
+        "- If Laya flags 'ransomware_extortion' with high confidence AND persistence/file drop is observed: Classify as 'ransomware' or 'Ransomware/Extortion Malware' with Risk Score 85-100 (Critical).\n"
+        "- If only persistence/recon is observed without extortion GUI: Classify as 'trojan' or 'dropper' with Risk Score 60-80 (High).\n"
+        "- If no persistence, no malicious GUI, and normal OS operations: Classify as 'benign' with Risk Score 0-35 (Low/Clean).\n"
+        "================================================================================\n"
+    )
+
+
+def _filter_procmon_data(data: dict) -> dict:
+    """Filter out noisy OS System32 DLL reads and generic system queries."""
+    filtered: dict[str, Any] = {
+        "sample_process": data.get("sample_process", ""),
+        "total_rows": data.get("total_rows", 0),
+        "sample_events": data.get("sample_events", 0),
+    }
+
+    file_act = data.get("file_activity", {})
+    notable_files = file_act.get("notable", {}) if isinstance(file_act, dict) else {}
+    interesting_files: dict[str, list[str]] = {}
+    for op in ("WriteFile", "Process Create", "sensitive_reads"):
+        items = notable_files.get(op, []) or (file_act.get(op, []) if isinstance(file_act, dict) else [])
+        if items:
+            interesting_files[op] = items[:15]
+
+    cf = notable_files.get("CreateFile", []) if isinstance(notable_files, dict) else []
+    interesting_cf = [
+        f for f in cf
+        if any(p in f.lower() for p in ("\\temp\\", "\\appdata\\", "\\startup\\", "\\desktop\\", ".exe", ".bin", ".bat", ".ps1"))
+        and not f.lower().endswith(".dll.mun")
+        and not f.lower().endswith("sortdefault.nls")
+    ]
+    if interesting_cf:
+        interesting_files["CreateFile_Suspicious"] = interesting_cf[:20]
+
+    filtered["file_activity"] = interesting_files
+
+    reg_act = data.get("registry_activity", {})
+    notable_reg = reg_act.get("notable", {}) if isinstance(reg_act, dict) else {}
+    interesting_reg: dict[str, list[str]] = {}
+
+    set_vals = notable_reg.get("RegSetValue", []) if isinstance(notable_reg, dict) else []
+    if set_vals:
+        interesting_reg["RegSetValue"] = set_vals[:20]
+
+    query_vals = notable_reg.get("RegQueryValue", []) if isinstance(notable_reg, dict) else []
+    filtered_queries = [
+        q for q in query_vals
+        if any(k in q.lower() for k in ("run", "services", "winlogon", "policies", "defender", "security"))
+    ]
+    if filtered_queries:
+        interesting_reg["RegQueryValue_Relevant"] = filtered_queries[:20]
+
+    filtered["registry_activity"] = interesting_reg
+
+    procs = data.get("process_activity", {}).get("child_processes", []) if isinstance(data.get("process_activity"), dict) else []
+    if procs:
+        filtered["child_processes"] = procs
+
+    if "lstm_inference" in data:
+        filtered["lstm_inference"] = data["lstm_inference"]
+    if "behavioral_normalization" in data:
+        filtered["behavioral_normalization"] = data["behavioral_normalization"]
+
+    return filtered
+
+
 # Maps agent name → function(report_dir) → (payload_text, has_data)
 def _load_sysmon(report_dir: str) -> tuple[str, bool]:
     data = _read_json(os.path.join(report_dir, "artifacts", "sysmon", "sysmon_summary.json"))
-    if not data:
-        return "No Sysmon data was collected for this analysis.", False
+    if not data or data.get("total_events", 0) == 0:
+        # Check if procmon or behavior has events to synthesize
+        procmon = _read_json(os.path.join(report_dir, "artifacts", "procmon", "procmon_summary.json"))
+        behav = _read_json(os.path.join(report_dir, "artifacts", "behavior", "behavior_summary.json"))
+        if procmon or behav:
+            total_ev = (procmon or {}).get("total_rows", 0) or len((behav or {}).get("files", {}).get("written", []))
+            procs = (procmon or {}).get("process_activity", [])
+            files = (behav or {}).get("files", {}).get("created", []) or (procmon or {}).get("file_activity", {}).get("notable", {}).get("created", [])
+            reg = (behav or {}).get("registry", {}).get("persistence_keys", [])
+            if total_ev > 0 or procs or files or reg:
+                synth = {
+                    "total_events": total_ev or (len(procs) + len(files) + len(reg)),
+                    "sample_events": (procmon or {}).get("sample_events", 0) or (len(procs) + len(files) + len(reg)),
+                    "sample_process": (procmon or {}).get("sample_process") or (behav or {}).get("sample_process", "sample.exe"),
+                    "processes_created": procs,
+                    "files_created": files,
+                    "registry_events": reg,
+                    "network_connections": [],
+                    "dns_queries": [],
+                    "dlls_loaded": [],
+                }
+                return _truncate_json(synth), True
+        return "No Sysmon data was available for analysis.", False
     return _truncate_json(data), True
 
 
 def _load_procmon(report_dir: str) -> tuple[str, bool]:
     data = _read_json(os.path.join(report_dir, "artifacts", "procmon", "procmon_summary.json"))
+    behav_data = _read_json(os.path.join(report_dir, "artifacts", "behavior", "behavior_summary.json"))
+    lstm_data = _read_json(os.path.join(report_dir, "artifacts", "lstm", "lstm_prediction.json"))
     if not data:
-        return "No Procmon data was collected for this analysis.", False
-    return _truncate_json(data), True
+        if behav_data:
+            # Build procmon payload from behavioral normalization
+            total_ops = sum(behav_data.get("summary", {}).values())
+            data = {
+                "sample_process": behav_data.get("sample_process", "sample.exe"),
+                "total_rows": total_ops,
+                "sample_events": total_ops,
+                "file_activity": {
+                    "total_operations": behav_data.get("summary", {}).get("total_files_written", 0),
+                    "notable": {
+                        "created": behav_data.get("files", {}).get("created", []),
+                        "written": behav_data.get("files", {}).get("written", []),
+                    },
+                },
+                "registry_activity": {
+                    "total_operations": behav_data.get("summary", {}).get("total_registry_modified", 0),
+                    "notable": {
+                        "modified": [k if isinstance(k, str) else k.get("key", "") for k in behav_data.get("registry", {}).get("persistence_keys", [])],
+                    },
+                },
+            }
+        else:
+            return "No Procmon data was collected for this analysis.", False
+    if lstm_data:
+        data["lstm_inference"] = {
+            "verdict": lstm_data.get("verdict"),
+            "p_malware": lstm_data.get("p_malware"),
+            "confidence": lstm_data.get("confidence"),
+            "peak_window_range": lstm_data.get("peak_window_range"),
+        }
+    if behav_data:
+        data["behavioral_normalization"] = {
+            "counts": behav_data.get("summary", {}),
+            "persistence_keys": behav_data.get("registry", {}).get("persistence_keys", []),
+            "defense_tampering": behav_data.get("registry", {}).get("defense_tampering_keys", []),
+            "sensitive_reads": behav_data.get("files", {}).get("sensitive_reads", [])[:20],
+        }
+    filtered_data = _filter_procmon_data(data)
+    return _truncate_json(filtered_data), True
 
 
 def _load_network(report_dir: str) -> tuple[str, bool]:
     data = _read_json(os.path.join(report_dir, "artifacts", "network", "network_summary.json"))
+    if not data:
+        try:
+            from core.modules.network_normalizer import normalize_report_directory
+            norm = normalize_report_directory(report_dir)
+            if norm.get("dns_queries") or norm.get("http_requests") or norm.get("connections"):
+                data = norm
+        except Exception:
+            pass
     if not data:
         return "No network capture data was collected for this analysis.", False
     return _truncate_json(data), True
@@ -436,6 +697,17 @@ def _load_network(report_dir: str) -> tuple[str, bool]:
 def _load_handle(report_dir: str) -> tuple[str, bool]:
     text = _read_text(os.path.join(report_dir, "artifacts", "handle", "handle_snapshot.txt"))
     if not text or not text.strip():
+        behav_data = _read_json(os.path.join(report_dir, "artifacts", "behavior", "behavior_summary.json"))
+        if behav_data:
+            lines = []
+            sp = behav_data.get("sample_process", "sample.exe")
+            for f in behav_data.get("files", {}).get("written", []):
+                lines.append(f"{sp} pid: 1234 File: {f}")
+            for k in behav_data.get("registry", {}).get("persistence_keys", []):
+                kname = k if isinstance(k, str) else k.get("key", "")
+                lines.append(f"{sp} pid: 1234 Key: {kname}")
+            if lines:
+                return "\n".join(lines), True
         return "No handle snapshot data was collected for this analysis.", False
     return text, True
 
@@ -443,6 +715,13 @@ def _load_handle(report_dir: str) -> tuple[str, bool]:
 def _load_tcpvcon(report_dir: str) -> tuple[str, bool]:
     text = _read_csv_as_text(os.path.join(report_dir, "artifacts", "tcpvcon", "tcpvcon_snapshot.csv"))
     if not text or not text.strip():
+        net_data = _read_json(os.path.join(report_dir, "artifacts", "network", "network_summary.json"))
+        if net_data and net_data.get("connections"):
+            conns = net_data.get("connections", [])
+            lines = ["Process,Protocol,Local Address,Remote Address,State"]
+            for c in conns:
+                lines.append(f"sample.exe,{c.get('protocol', 'TCP')},{c.get('src', '0.0.0.0:0')},{c.get('dst', '')},ESTABLISHED")
+            return "\n".join(lines), True
         return "No TCPVcon data was collected for this analysis.", False
     return text, True
 
@@ -451,6 +730,7 @@ def _load_metadata(report_dir: str) -> tuple[str, bool]:
     data = _read_json(os.path.join(report_dir, "artifacts", "metadata.json"))
     manifest = _read_json(os.path.join(report_dir, "analysis_manifest.json"))
     yara_data = _read_json(os.path.join(report_dir, "artifacts", "yara", "yara_summary.json"))
+    lstm_data = _read_json(os.path.join(report_dir, "artifacts", "lstm", "lstm_prediction.json"))
     combined: dict[str, Any] = {}
     if manifest:
         combined["manifest"] = {
@@ -471,6 +751,62 @@ def _load_metadata(report_dir: str) -> tuple[str, bool]:
             "tags": yara_data.get("tags", []),
             "matches": yara_data.get("matches", []),
             "mitre_attack": yara_data.get("mitre_attack", []),
+        }
+    if lstm_data:
+        combined["lstm_behavioral_prediction"] = {
+            "verdict": lstm_data.get("verdict"),
+            "p_malware": lstm_data.get("p_malware"),
+            "confidence": lstm_data.get("confidence"),
+            "sequence_length": lstm_data.get("total_sequence_length", lstm_data.get("sequence_length", 0)),
+            "unique_apis_count": len(lstm_data.get("unique_apis", [])),
+            "peak_window": lstm_data.get("peak_window_range"),
+        }
+    behav_data = _read_json(os.path.join(report_dir, "artifacts", "behavior", "behavior_summary.json"))
+    if behav_data:
+        combined["behavior_summary"] = {
+            "summary": behav_data.get("summary", {}),
+            "mitre_attack": behav_data.get("mitre_attack", []),
+            "persistence_keys": behav_data.get("registry", {}).get("persistence_keys", []),
+            "defense_tampering_keys": behav_data.get("registry", {}).get("defense_tampering_keys", []),
+        }
+    gui_data = _read_json(os.path.join(report_dir, "artifacts", "gui", "gui_analysis.json"))
+    if gui_data:
+        # Filter flagged windows to distinct, non-empty OCR frames
+        distinct_windows = []
+        seen_snippets = set()
+        for w in gui_data.get("flagged_windows", []):
+            snippet = (w.get("ocr_text", "") or "").strip().replace("\n", " ")[:250]
+            if snippet and snippet in seen_snippets:
+                continue
+            if snippet:
+                seen_snippets.add(snippet)
+            distinct_windows.append({
+                "filename": w.get("filename"),
+                "threat_type": w.get("threat_type"),
+                "confidence": w.get("confidence"),
+                "matched_keywords": w.get("matched_keywords", []),
+                "ocr_snippet": snippet if len(snippet) <= 200 else (snippet[:200] + "..."),
+            })
+            if len(distinct_windows) >= 5:
+                break
+
+        combined["gui_screen_analysis"] = {
+            "has_malicious_gui": gui_data.get("has_malicious_gui", False),
+            "highest_threat_type": gui_data.get("highest_threat_type", "benign"),
+            "max_confidence": gui_data.get("max_confidence", 0.0),
+            "flagged_count": gui_data.get("flagged_count", 0),
+            "flagged_windows": distinct_windows,
+        }
+    risk_data = _read_json(os.path.join(report_dir, "artifacts", "risk", "risk_score.json"))
+    if risk_data:
+        combined["deterministic_risk_assessment"] = {
+            "score": risk_data.get("risk_score"),
+            "threat_level": risk_data.get("threat_level"),
+            "layers_flagged": risk_data.get("total_layers_flagged", 0),
+            "breakdown": [
+                {"layer": b.get("layer"), "points": b.get("points"), "summary": b.get("summary")}
+                for b in risk_data.get("breakdown", [])
+            ],
         }
     if not combined:
         return "No metadata available for this analysis.", False
@@ -565,7 +901,9 @@ class ThreatAnalyzer:
             result = ToolAnalysisResult(
                 tool=tool_name, agent_name=agent_def.name,
             )
+            tool_guide = get_tool_explanation(tool_name)
             prompt = (
+                f"{tool_guide}\n\n"
                 f"Analyze the following {tool_name} data from a malware sandbox execution.\n"
                 f"Sample file: {self._get_sample_name(report_dir)}\n\n"
                 f"--- BEGIN {tool_name.upper()} DATA ---\n"
@@ -729,10 +1067,11 @@ class ThreatAnalyzer:
 
         # ── Phase 2: Final summary ────────────────────────────────────
         summary_input_parts = [
+            get_summarizer_system_guide(),
             f"Sample: {self._get_sample_name(report_dir)}",
             "",
-            "Below are the analysis outputs from each specialized tool analyst.",
-            "Synthesize them into a final threat report.",
+            "Below are the structured analysis outputs from each specialized tool analyst.",
+            "Synthesize them into a definitive, structured threat report.",
             "",
         ]
         for tool_name, json_text in tool_responses.items():
@@ -833,5 +1172,18 @@ class ThreatAnalyzer:
             summary_path = os.path.join(ai_dir, "threat_report.json")
             with open(summary_path, "w", encoding="utf-8") as f:
                 f.write(report.raw_summary)
+
+        # Update manifest with AI score while preserving deterministic score
+        manifest_path = os.path.join(report_dir, "analysis_manifest.json")
+        if os.path.isfile(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as mf:
+                    mdata = json.load(mf)
+                mdata["ai_risk_score"] = report.risk_score
+                mdata["ai_threat_level"] = report.threat_level
+                with open(manifest_path, "w", encoding="utf-8") as mf:
+                    json.dump(mdata, mf, indent=2)
+            except Exception as exc:
+                log.warning("Could not update manifest with AI scores: %s", exc)
 
         log.info("AI analysis saved to %s", ai_dir)

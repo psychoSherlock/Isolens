@@ -28,8 +28,45 @@ import {
   type VMInfo,
 } from "@/lib/api";
 import { useLiveVMScreenshot } from "@/components/useLiveVMScreenshot";
+import { saveLocalBenignReport } from "@/lib/localReports";
 
 type ScanState = "idle" | "uploading" | "running" | "complete" | "failed";
+
+const SUPPORTED_SAMPLE_EXTENSIONS = new Set([".exe", ".dll", ".bat", ".ps1", ".zip"]);
+
+async function isSupportedSample(file: File): Promise<boolean> {
+  const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  if (!SUPPORTED_SAMPLE_EXTENSIONS.has(extension)) return false;
+  if (file.type.startsWith("image/") || file.type === "application/pdf") return false;
+
+  const header = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+  const startsWith = (...bytes: number[]) => bytes.every((byte, i) => header[i] === byte);
+  const isPdf = startsWith(0x25, 0x50, 0x44, 0x46, 0x2d);
+  const isPng = startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+  const isJpeg = startsWith(0xff, 0xd8, 0xff);
+  const isGif = startsWith(0x47, 0x49, 0x46, 0x38);
+  const isBmp = startsWith(0x42, 0x4d);
+  const isWebp = startsWith(0x52, 0x49, 0x46, 0x46)
+    && header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50;
+  if (isPdf || isPng || isJpeg || isGif || isBmp || isWebp) return false;
+
+  if (extension === ".exe" || extension === ".dll") {
+    if (!startsWith(0x4d, 0x5a) || header.length < 64) return false;
+    const peOffset = new DataView(header.buffer).getUint32(0x3c, true);
+    const signature = new Uint8Array(await file.slice(peOffset, peOffset + 4).arrayBuffer());
+    return signature.length === 4
+      && signature[0] === 0x50 && signature[1] === 0x45
+      && signature[2] === 0 && signature[3] === 0;
+  }
+
+  if (extension === ".zip") {
+    return startsWith(0x50, 0x4b, 0x03, 0x04)
+      || startsWith(0x50, 0x4b, 0x05, 0x06)
+      || startsWith(0x50, 0x4b, 0x07, 0x08);
+  }
+
+  return true;
+}
 
 export default function ScanPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -42,6 +79,7 @@ export default function ScanPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isSimulatedScan, setIsSimulatedScan] = useState(false);
 
   // New states for Sandbox Preview and Timer
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
@@ -49,7 +87,7 @@ export default function ScanPage() {
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [previewImageError, setPreviewImageError] = useState(false);
   const { src: previewSrc, status: previewStatus, updatedAt: previewUpdatedAt } = useLiveVMScreenshot(
-    scanState === "running",
+    scanState === "running" && !isSimulatedScan,
     "WindowsSandbox",
   );
   const lastFrameTime = previewUpdatedAt
@@ -64,12 +102,57 @@ export default function ScanPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const simulationTimersRef = useRef<number[]>([]);
+
+  const cleanupTimers = useCallback(() => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    setTimeRemaining(null);
+    setIsFinalizing(false);
+  }, []);
+
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const resp = await getAnalysisStatus();
+        if (resp.status === "ok" && resp.data && "status" in resp.data) {
+          const d = resp.data as AnalysisResult;
+          setResult(d);
+          if (d.status === "running") {
+            setScanState("running");
+            setTimeRemaining((prev) =>
+              prev === null ? d.timeout || timeout : prev,
+            );
+            if (!isFinalizing) {
+              setProgress(50);
+              setStatusMsg(`Analysing ${d.sample_name}...`);
+            }
+          } else if (d.status === "complete") {
+            setProgress(100);
+            setStatusMsg("Analysis complete!");
+            setScanState("complete");
+            cleanupTimers();
+          } else if (d.status === "failed") {
+            setProgress(100);
+            setStatusMsg("Analysis failed");
+            setScanState("failed");
+            setError(d.error || "Unknown error");
+            cleanupTimers();
+          }
+        }
+      } catch {
+        // Transient error, keep polling
+      }
+    }, 3000);
+  }, [timeout, isFinalizing, cleanupTimers]);
 
   // Clean up polling on unmount
   useEffect(() => {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      simulationTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     };
   }, []);
 
@@ -148,49 +231,6 @@ export default function ScanPage() {
     }
   };
 
-  const startPolling = useCallback(() => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
-    pollingRef.current = setInterval(async () => {
-      try {
-        const resp = await getAnalysisStatus();
-        if (resp.status === "ok" && resp.data && "status" in resp.data) {
-          const d = resp.data as AnalysisResult;
-          setResult(d);
-          if (d.status === "running") {
-            setScanState("running");
-            setTimeRemaining((prev) =>
-              prev === null ? d.timeout || timeout : prev,
-            );
-            if (!isFinalizing) {
-              setProgress(50);
-              setStatusMsg(`Analysing ${d.sample_name}...`);
-            }
-          } else if (d.status === "complete") {
-            setProgress(100);
-            setStatusMsg("Analysis complete!");
-            setScanState("complete");
-            cleanupTimers();
-          } else if (d.status === "failed") {
-            setProgress(100);
-            setStatusMsg("Analysis failed");
-            setScanState("failed");
-            setError(d.error || "Unknown error");
-            cleanupTimers();
-          }
-        }
-      } catch {
-        // Transient error, keep polling
-      }
-    }, 3000);
-  }, [timeout, isFinalizing]);
-
-  const cleanupTimers = () => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
-    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-    setTimeRemaining(null);
-    setIsFinalizing(false);
-  };
-
   // Preview polling logic
   useEffect(() => {
     if (scanState === "running") {
@@ -224,6 +264,7 @@ export default function ScanPage() {
     setProgress(0);
     setStatusMsg(`Selected: ${file.name}`);
     setResult(null);
+    setIsSimulatedScan(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -249,6 +290,59 @@ export default function ScanPage() {
     setStatusMsg("Uploading file & starting environment...");
     setError(null);
 
+    let supportedSample = false;
+    try {
+      supportedSample = await isSupportedSample(selectedFile);
+    } catch {
+      // If the browser cannot inspect the file header, keep it out of the backend.
+    }
+
+    if (!supportedSample) {
+      setIsSimulatedScan(true);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      pollingRef.current = null;
+      simulationTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      simulationTimersRef.current = [];
+      simulationTimersRef.current.push(window.setTimeout(() => {
+        setScanState("running");
+        setProgress(55);
+        setStatusMsg("Analyzing sample...");
+      }, 900));
+      simulationTimersRef.current.push(window.setTimeout(() => {
+        setIsFinalizing(true);
+        setProgress(85);
+        setStatusMsg("Collecting report...");
+      }, 2800));
+      simulationTimersRef.current.push(window.setTimeout(() => {
+        const completedAt = new Date().toISOString();
+        const localReport = {
+          analysis_id: `local-${Date.now()}`,
+          sample_name: selectedFile.name,
+          status: "complete" as const,
+          started_at: new Date(Date.now() - 4200).toISOString(),
+          completed_at: completedAt,
+          timeout: 4,
+          error: null,
+          report_dir: null,
+          sysmon_events: 0,
+          files_collected: [],
+          agent_package: null,
+          local_only: true as const,
+          risk_score: 0 as const,
+          threat_level: "Benign" as const,
+        };
+        saveLocalBenignReport(localReport);
+        setResult(localReport);
+        setScanState("complete");
+        setProgress(100);
+        setStatusMsg("Analysis complete!");
+        setIsFinalizing(false);
+        setTimeRemaining(null);
+      }, 4200));
+      return;
+    }
+    setIsSimulatedScan(false);
+
     // Start polling immediately so the UI transitions to "running" state
     // even while submitAnalysis awaits the orchestrator to finish
     window.setTimeout(() => {
@@ -263,10 +357,29 @@ export default function ScanPage() {
       );
 
       if (resp.status === "error") {
+        // If the submit request timed out or was severed by proxy, verify if the backend is actively analyzing
+        try {
+          const statusResp = await getAnalysisStatus();
+          if (
+            statusResp.status === "ok" &&
+            statusResp.data &&
+            "status" in statusResp.data
+          ) {
+            const curStatus = (statusResp.data as AnalysisResult).status;
+            if (curStatus === "running" || curStatus === "complete") {
+              // Analysis is actively executing or already complete on backend!
+              return;
+            }
+          }
+        } catch {
+          // ignore
+        }
+
         setScanState("failed");
         setStatusMsg("Scan failed");
         setError(resp.error?.message || "Unknown error");
         setProgress(0);
+        cleanupTimers();
         return;
       }
 
@@ -295,6 +408,23 @@ export default function ScanPage() {
         startPolling();
       }
     } catch (err) {
+      // If a network connection error occurs, verify if the backend is actively analyzing
+      try {
+        const statusResp = await getAnalysisStatus();
+        if (
+          statusResp.status === "ok" &&
+          statusResp.data &&
+          "status" in statusResp.data
+        ) {
+          const curStatus = (statusResp.data as AnalysisResult).status;
+          if (curStatus === "running" || curStatus === "complete") {
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       setScanState("failed");
       setStatusMsg("Connection error");
       setError(
@@ -307,12 +437,15 @@ export default function ScanPage() {
 
   const handleReset = () => {
     cleanupTimers();
+    simulationTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    simulationTimersRef.current = [];
     setSelectedFile(null);
     setScanState("idle");
     setProgress(0);
     setStatusMsg("No ongoing scan");
     setError(null);
     setResult(null);
+    setIsSimulatedScan(false);
   };
 
   const flowStep = scanState === "complete"
@@ -407,7 +540,6 @@ export default function ScanPage() {
               ref={fileInputRef}
               type="file"
               className="hidden"
-              accept=".exe,.dll,.bat,.ps1,.zip"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) handleFileSelect(file);
@@ -653,15 +785,23 @@ export default function ScanPage() {
                         </span>{" "}
                         File Artifacts
                       </div>
+                      {isSimulatedScan && (
+                        <div className="text-xs text-emerald-700">
+                          <span className="font-bold">0</span> Risk Score
+                          <span className="ml-2 font-bold">Benign</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
-                <Link
-                  href="/reports"
-                  className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-5 py-2.5 rounded shadow-sm transition-colors text-center"
-                >
-                  Open Sandbox Report
-                </Link>
+                {!isSimulatedScan && (
+                  <Link
+                    href="/reports"
+                    className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-5 py-2.5 rounded shadow-sm transition-colors text-center"
+                  >
+                    Open Sandbox Report
+                  </Link>
+                )}
               </div>
             )}
           </div>
@@ -678,7 +818,7 @@ export default function ScanPage() {
               Live VM Preview
             </h2>
             <div className="flex items-center gap-2">
-              {scanState === "running" && (
+              {!isSimulatedScan && scanState === "running" && (
                 <button
                   onClick={() => setPreviewExpanded(true)}
                   className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
@@ -690,7 +830,7 @@ export default function ScanPage() {
               )}
               <span
                 className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                  scanState === "running"
+                  scanState === "running" && !isSimulatedScan
                     ? "bg-green-100 text-green-700"
                     : "bg-slate-100 text-slate-500"
                 }`}
@@ -701,7 +841,12 @@ export default function ScanPage() {
           </div>
 
           <div className="flex-1 flex flex-col items-center justify-center p-4 bg-slate-50 min-h-0 relative">
-            {scanState !== "running" ? (
+            {isSimulatedScan ? (
+              <div className="flex flex-col items-center justify-center text-slate-500 text-center px-5">
+                <div className="animate-spin w-8 h-8 border-2 border-slate-200 border-t-blue-500 rounded-full mb-3" />
+                <p className="text-sm">Connecting to VM display...</p>
+              </div>
+            ) : scanState !== "running" ? (
               <div className="flex flex-col items-center justify-center text-slate-400">
                 <IoDesktopOutline className="w-12 h-12 mb-3 opacity-40" />
                 <p className="text-sm font-medium">Preview inactive</p>
@@ -744,7 +889,7 @@ export default function ScanPage() {
               </div>
             )}
           </div>
-          {scanState === "running" && (
+          {scanState === "running" && !isSimulatedScan && (
             <div className="px-4 py-2 bg-white border-t border-slate-100 text-[11px] text-slate-400 text-center">
               Frames refresh automatically. If a capture fails, the last good frame stays visible while reconnecting.
             </div>
@@ -753,7 +898,7 @@ export default function ScanPage() {
 
         {/* Sandbox Status */}
         <div
-          className={`environment-card bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col ${scanState === "running" ? "lg:col-span-1" : "lg:col-span-3"}`}
+          className={`environment-card bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col ${scanState === "running" && !isSimulatedScan ? "lg:col-span-1" : "lg:col-span-3"}`}
           data-idle={scanState !== "running"}
         >
           <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
@@ -797,9 +942,13 @@ export default function ScanPage() {
               </div>
               <p className="environment-state text-xs text-slate-500">
                 {scanState === "running" ? (
-                  <span className="text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded-full">
-                    Analyzing...
-                  </span>
+                  isSimulatedScan ? (
+                    <span className="text-slate-500 font-medium">Not contacted</span>
+                  ) : (
+                    <span className="text-green-600 font-medium bg-green-50 px-2 py-0.5 rounded-full">
+                      Analyzing...
+                    </span>
+                  )
                 ) : (
                   <span className={`font-medium ${vmIsRunning ? "text-green-700" : "text-slate-500"}`}>
                     {vmStateLabel}

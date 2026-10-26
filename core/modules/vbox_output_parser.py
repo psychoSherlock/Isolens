@@ -67,7 +67,9 @@ def _parse_raw(stdout: str) -> dict[str, Any]:
 _NIC_RE = re.compile(
     r"^(nic|macaddress|cableconnected|natnet|hostonlyadapter|bridgeadapter)(\d+)$"
 )
-_SF_RE = re.compile(r"^SharedFolder(Name|Path)GlobalMapping(\d+)$")
+_SF_RE = re.compile(
+    r"^SharedFolder(Name|Path)(GlobalMapping|MachineMapping|TransientMapping)(\d+)$"
+)
 
 
 def parse_showvminfo(stdout: str) -> dict[str, Any]:
@@ -146,16 +148,21 @@ def parse_showvminfo(stdout: str) -> dict[str, Any]:
     for key, value in raw.items():
         m = _SF_RE.match(key)
         if m:
-            prop, idx = m.group(1), m.group(2)
+            prop, mtype, idx = m.group(1), m.group(2), m.group(3)
+            mapKey = f"{mtype}_{idx}"
             if prop == "Name":
-                sf_names[idx] = value
+                sf_names[mapKey] = value
             else:
-                sf_paths[idx] = value
+                sf_paths[mapKey] = value
 
-    info["shared_folders"] = [
-        {"name": sf_names[i], "path": sf_paths.get(i, "")}
-        for i in sorted(sf_names, key=int)
-    ]
+    seen_names = set()
+    sfolders = []
+    for k, name in sf_names.items():
+        if name not in seen_names:
+            seen_names.add(name)
+            sfolders.append({"name": name, "path": sf_paths.get(k, "")})
+
+    info["shared_folders"] = sfolders
 
     return info
 

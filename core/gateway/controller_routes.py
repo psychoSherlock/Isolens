@@ -135,6 +135,11 @@ def vm_start(payload: VMStartRequest) -> StandardResponse:
     try:
         client = _client(dry_run=payload.dry_run, raise_on_error=payload.raise_on_error)
         result = client.start_vm(payload.vm, headless=payload.headless)
+        if result.returncode == 0 and not payload.dry_run:
+            try:
+                client.ensure_shared_folder(payload.vm, "SandboxShare")
+            except Exception:
+                pass
         return _ok(_action_response(result, dry_run=payload.dry_run))
     except RuntimeError as exc:
         return JSONResponse(
@@ -239,6 +244,11 @@ def snapshot_restore(payload: SnapshotRequest) -> StandardResponse:
     try:
         client = _client(dry_run=payload.dry_run, raise_on_error=payload.raise_on_error)
         result = client.snapshot_restore(payload.vm, payload.name)
+        if result.returncode == 0 and not payload.dry_run:
+            try:
+                client.ensure_shared_folder(payload.vm, "SandboxShare")
+            except Exception:
+                pass
         return _ok(_action_response(result, dry_run=payload.dry_run))
     except RuntimeError as exc:
         return JSONResponse(
@@ -252,6 +262,11 @@ def snapshot_restore_current(payload: VMControlRequest) -> StandardResponse:
     try:
         client = _client(dry_run=payload.dry_run, raise_on_error=payload.raise_on_error)
         result = client.snapshot_restore_current(payload.vm)
+        if result.returncode == 0 and not payload.dry_run:
+            try:
+                client.ensure_shared_folder(payload.vm, "SandboxShare")
+            except Exception:
+                pass
         return _ok(_action_response(result, dry_run=payload.dry_run))
     except RuntimeError as exc:
         return JSONResponse(

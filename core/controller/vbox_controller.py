@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -123,6 +124,71 @@ class VBoxManageClient:
 
     def snapshot_restore_current(self, vm: str) -> CommandResult:
         return self._run(["snapshot", vm, "restorecurrent"])
+
+    def sharedfolder_add(
+        self,
+        vm: str,
+        name: str,
+        hostpath: str,
+        *,
+        automount: bool = True,
+        transient: bool = False,
+    ) -> CommandResult:
+        """Add a shared folder to the VM."""
+        args = ["sharedfolder", "add", vm, "--name", name, "--hostpath", hostpath]
+        if automount:
+            args.append("--automount")
+        if transient:
+            args.append("--transient")
+        res = self._run(args, check=False)
+        if res.returncode != 0:
+            if "already exists" in (res.stderr or "").lower():
+                return CommandResult(
+                    cmd=res.cmd,
+                    returncode=0,
+                    stdout=res.stdout,
+                    stderr=res.stderr,
+                )
+            if self.raise_on_error:
+                raise RuntimeError(res.stderr.strip() or "VBoxManage sharedfolder add failed")
+        return res
+
+    def ensure_shared_folder(
+        self,
+        vm: str,
+        name: str = "SandboxShare",
+        hostpath: Optional[str] = None,
+    ) -> CommandResult:
+        """Ensure a shared folder is attached to the VM (transient if running, permanent if stopped)."""
+        if hostpath is None:
+            _project_root = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
+            )
+            hostpath = os.path.join(_project_root, "SandboxShare")
+
+        info_res = self.show_vm_info(vm, machinereadable=True)
+        is_running = False
+        if info_res.returncode == 0:
+            from core.modules.vbox_output_parser import parse_showvminfo
+            parsed = parse_showvminfo(info_res.stdout)
+            is_running = (parsed.get("state") or "").lower() == "running"
+            sfolders = parsed.get("shared_folders", [])
+            for sf in sfolders:
+                if sf.get("name") == name:
+                    return CommandResult(
+                        cmd=["ensure_shared_folder"],
+                        returncode=0,
+                        stdout="Already attached",
+                        stderr="",
+                    )
+
+        return self.sharedfolder_add(
+            vm,
+            name,
+            hostpath,
+            automount=True,
+            transient=is_running,
+        )
 
     def get_vm_ip_addresses(self, vm: str) -> CommandResult:
         """Enumerate all network interface IPs from VirtualBox Guest Additions.

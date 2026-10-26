@@ -382,3 +382,43 @@ Retrieve YARA static pattern detection findings and matched capability signature
 ```bash
 curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/yara
 ```
+
+## Get LSTM Behavioral Prediction
+
+Retrieve sequential BiLSTM behavioral malice prediction, sequence length, and sliding-window attention peaks for an analysis.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/lstm
+```
+
+## Get Normalized Behavioral Analysis
+
+Retrieve normalized filesystem and registry behaviors, sensitive targets, and MITRE ATT&CK mappings.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/behavior
+```
+
+## Get GUI Screen Analysis & Laya Triage
+
+Retrieve GUI application window OCR extraction, threat keyword detection, and Laya System 1 threat triage (Ransomware / Tech Support Scam / FakeAV).
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/gui
+```
+
+## Get Unified Deterministic Risk Score
+
+Retrieve unified 0-100 objective risk score, threat level (Critical/High/Medium/Low/Benign), and granular per-layer scoring breakdown.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/risk
+```
+
+## Get Offline Network Threat DB Matches
+
+Retrieve offline Network Threat Intel DB matches against ThreatFox, URLhaus, and Feodo Tracker for an analysis.
+
+```bash
+curl -s http://127.0.0.1:6969/api/analysis/report/ANALYSIS_ID/network-db
+```

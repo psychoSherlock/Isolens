@@ -51,6 +51,7 @@ Handles all user-facing logic:
 - Risk score visualization
 - Screenshot rendering
 - Next.js application (App Router) for the web interface
+- Safe API JSON parsing (`parseApiResponse`) and proxy resilience for long-running analyses
 
 No VM or analysis logic must exist here.
 
@@ -101,6 +102,8 @@ Contains expandable submodules such as:
 - Deterministic network threat intelligence matching (`network_db_matcher.py`)
 - Filesystem & registry behavioral normalization, sensitive target extraction, and MITRE mapping (`behavior_normalizer.py`)
 - Static YARA pattern matching and capability detection (`yara_scanner.py`)
+- GUI application window extraction, Tesseract OCR, and Laya System 1 threat triage (`gui_analyzer.py`)
+- Multi-layer deterministic objective risk scoring and explainable breakdown (`risk_scorer.py`)
 
 
 This layer converts raw monitoring data into structured findings.
@@ -156,10 +159,11 @@ AI-assisted intelligence layer:
 - MITRE ATT&CK technique mapping
 - IOC extraction and deduplication
 
-AI calls route through an intelligent 3-tier cascade fallback router:
+AI calls route through an intelligent multi-tier cascade fallback router:
 1. **Tier 1 (Primary)**: **NVIDIA NIM API** (`meta/llama-3.3-70b-instruct` via OpenAI-compatible endpoint `https://integrate.api.nvidia.com/v1`)
 2. **Tier 2 (Fallback)**: **Google Gemini API** (`gemini-2.0-flash` via Generative Language API)
-3. **Tier 3 (Last Fallback)**: **GitHub Copilot SDK** (`gpt-5-mini` local session)
+3. **Tier 3 (Fallback)**: **GitHub Copilot SDK** (`gpt-5-mini` local session)
+4. **Tier 4 / Local Offline**: **Local / LAN Ollama Endpoint** (`llama3.1:8b` / `llama3.2:3b` at `http://10.42.0.88:11434` or `http://localhost:11434`)
 
 ### Multi-Agent Analysis Pipeline
 
@@ -188,6 +192,10 @@ The pipeline uses specialised per-tool agents that each receive minimal data (re
 - `POST /api/analysis/report/{id}/ai-analyze` — Run AI analysis pipeline
 - `GET  /api/analysis/report/{id}/ai-report`  — Retrieve saved AI report
 - `GET  /api/analysis/report/{id}/yara`       — Retrieve YARA static pattern detection findings
+- `GET  /api/analysis/report/{id}/lstm`       — Retrieve BiLSTM sequential behavioral malice prediction
+- `GET  /api/analysis/report/{id}/behavior`   — Retrieve normalized filesystem and registry behavioral findings
+- `GET  /api/analysis/report/{id}/gui`        — Retrieve GUI screen OCR analysis and Laya threat triage
+- `GET  /api/analysis/report/{id}/risk`       — Retrieve unified deterministic risk score and layer breakdown
 
 This layer operates on structured findings from collector artifacts, not raw logs.
 

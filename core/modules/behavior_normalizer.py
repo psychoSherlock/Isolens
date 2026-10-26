@@ -178,7 +178,11 @@ def normalize_behavior_artifacts(
         for p in notable.get("WriteFile", []):
             if p:
                 written_files.add(p)
-        for p in notable.get("SetDisposition", []) + notable.get("DeleteFile", []):
+        for p in (
+            notable.get("SetDisposition", [])
+            + notable.get("SetDispositionInformationFile", [])
+            + notable.get("DeleteFile", [])
+        ):
             if p:
                 deleted_files.add(p)
 
@@ -377,3 +381,38 @@ def normalize_report_behavior(report_dir: Union[str, Path]) -> Dict[str, Any]:
         procmon_summary=procmon_data,
         sysmon_summary=sysmon_data,
     )
+
+
+def run_behavior_normalizer_on_report(
+    report_dir: Union[str, Path],
+    save_artifact: bool = True,
+) -> Dict[str, Any]:
+    """Execute behavioral normalization on a report directory and optionally save
+
+    artifacts/behavior/behavior_summary.json.
+    """
+    result = normalize_report_behavior(report_dir)
+    if save_artifact:
+        rdir = Path(report_dir)
+        out_dir = rdir / "artifacts" / "behavior"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / "behavior_summary.json"
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+        log.info("Saved behavior summary artifact: %s", out_file)
+    return result
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="IsoLens Filesystem & Registry Behavioral Normalizer")
+    parser.add_argument("--report", type=str, required=True, help="Path to analysis report directory")
+    parser.add_argument("--save", action="store_true", help="Save artifacts/behavior/behavior_summary.json")
+
+    args = parser.parse_args()
+    res = run_behavior_normalizer_on_report(args.report, save_artifact=args.save)
+    print(json.dumps(res, indent=2))
+
+
+if __name__ == "__main__":
+    main()

@@ -7,6 +7,7 @@ latency predictable across all tool-analyst and summarizer agents.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from copilot import CopilotClient, PermissionHandler
@@ -88,13 +89,13 @@ class ThreatIntelCopilotService:
             options["github_token"] = self.github_token
 
         custom_agents = [entry.to_custom_agent_config() for entry in self._agents]
+        active_model = os.getenv("COPILOT_MODEL", "gpt-4.1")
         session_config: dict[str, Any] = {
+            "model": active_model,
             "on_permission_request": PermissionHandler.approve_all,
             "custom_agents": custom_agents,
-            "streaming": True,
+            "streaming": False,
         }
-        if self.model:
-            session_config["model"] = self.model
         if self.working_directory:
             session_config["working_directory"] = self.working_directory
 
@@ -113,9 +114,46 @@ class ThreatIntelCopilotService:
                 )
 
             session = await client.create_session(session_config)
+            final_event = None
+            history: list[Any] = []
             try:
-                final_event = await session.send_and_wait({"prompt": command_prompt}, timeout=timeout)
-                history = await session.get_messages()
+                import asyncio
+                idle_event = asyncio.Event()
+                error_event: Exception | None = None
+                last_msg: Any = None
+
+                def event_handler(event: Any) -> None:
+                    nonlocal last_msg, error_event
+                    if event.type == SessionEventType.ASSISTANT_MESSAGE:
+                        last_msg = event
+                        if getattr(event.data, "content", None):
+                            # In non-streaming mode, full response is delivered with ASSISTANT_MESSAGE
+                            idle_event.set()
+                    elif event.type == SessionEventType.SESSION_IDLE:
+                        idle_event.set()
+                    elif event.type == SessionEventType.SESSION_ERROR:
+                        error_event = Exception(
+                            f"Session error: {getattr(event.data, 'message', str(event.data))}"
+                        )
+                        idle_event.set()
+
+                unsubscribe = session.on(event_handler)
+                try:
+                    await session.send({"prompt": command_prompt})
+                    try:
+                        await asyncio.wait_for(idle_event.wait(), timeout=timeout)
+                    except TimeoutError:
+                        if last_msg is None:
+                            raise TimeoutError(f"Timeout after {timeout}s waiting for Copilot response")
+                    if error_event and last_msg is None:
+                        raise error_event
+                    final_event = last_msg
+                    try:
+                        history = await session.get_messages()
+                    except Exception:
+                        history = []
+                finally:
+                    unsubscribe()
             finally:
                 await session.destroy()
         finally:

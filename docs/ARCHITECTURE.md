@@ -45,7 +45,7 @@ Communicates file transfers via VirtualBox Shared Folder (`SandboxShare/`).
 
 ### `core/modules/`
 
-Functional processing layer for parsing logs, extracting IOCs, risk scoring, parsing VBoxManage outputs, bridging Procmon logs to LSTM sequential behavioral inference, and normalizing network telemetry with OS background noise filtering.
+Functional processing layer for parsing logs, extracting IOCs, unified deterministic risk scoring (`risk_scorer.py`), parsing VBoxManage outputs, bridging Procmon logs to LSTM sequential behavioral inference, normalizing network telemetry with OS background noise filtering, matching deterministic threat intelligence feeds, YARA static pattern detection, and GUI application window OCR triage (`gui_analyzer.py`).
 
 ### `core/observer/`
 
@@ -55,10 +55,11 @@ Monitoring layer that collects raw data from the host perspective (process track
 
 AI-assisted layer that provides threat classification, risk scoring, and natural language summaries.
 
-AI calls route through an automated 3-tier cascade fallback router:
+AI calls route through an automated multi-tier cascade fallback router:
 1. **Tier 1 (Primary)**: **NVIDIA NIM API** (`meta/llama-3.3-70b-instruct` via OpenAI-compatible endpoint `https://integrate.api.nvidia.com/v1`)
 2. **Tier 2 (Fallback)**: **Google Gemini API** (`gemini-2.0-flash` via Generative Language API)
-3. **Tier 3 (Last Fallback)**: **GitHub Copilot SDK** (`gpt-5-mini` local session)
+3. **Tier 3 (Fallback)**: **GitHub Copilot SDK** (`gpt-5-mini` local session)
+4. **Tier 4 / Local Offline**: **Local / LAN Ollama Endpoint** (`llama3.1:8b` / `llama3.2:3b` at `http://10.42.0.88:11434` or `http://localhost:11434`)
 
 Contains a multi-agent AI analysis pipeline:
 
@@ -78,6 +79,11 @@ Gateway endpoints:
 
 - `POST /api/analysis/report/{id}/ai-analyze` — trigger AI analysis
 - `GET  /api/analysis/report/{id}/ai-report` — retrieve saved AI report
+- `GET  /api/analysis/report/{id}/yara` — retrieve YARA static pattern detection findings
+- `GET  /api/analysis/report/{id}/lstm` — retrieve BiLSTM sequential behavioral prediction
+- `GET  /api/analysis/report/{id}/behavior` — retrieve normalized filesystem & registry behavioral findings
+- `GET  /api/analysis/report/{id}/gui` — retrieve GUI application window OCR & Laya threat triage
+- `GET  /api/analysis/report/{id}/risk` — retrieve unified deterministic risk score and layer breakdown
 
 ### `core/storage/`
 
